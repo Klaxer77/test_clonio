@@ -5,12 +5,77 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Snake Smooth Multiplayer</title>
   <style>
-    html,body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);color:white;}
+    html,body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);color:white;touch-action:none;}
     canvas{display:block;outline:none;}
     #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background: rgba(0,0,0,0.82);gap:14px;text-align:center;padding:24px;box-sizing:border-box;}
     button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
     button:hover{background:#7CFF7C;}
     .hud{position:fixed;left:12px;top:10px;z-index:5;font-size:14px;opacity:.85;user-select:none;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);line-height:1.35;white-space:pre;}
+
+    /* ===== Mobile UI ===== */
+    #mobileUI{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      display:none;
+      z-index:20;
+    }
+    .joyWrap{
+      position:absolute;
+      left:14px;
+      bottom:16px;
+      width:150px;
+      height:150px;
+      pointer-events:auto;
+      touch-action:none;
+    }
+    .joyBase{
+      position:absolute; inset:0;
+      border-radius:999px;
+      background:rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.10);
+      backdrop-filter: blur(3px);
+    }
+    .joyKnob{
+      position:absolute;
+      left:50%; top:50%;
+      width:70px; height:70px;
+      margin-left:-35px; margin-top:-35px;
+      border-radius:999px;
+      background:rgba(255,255,255,0.12);
+      border:1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      transform: translate(0px,0px);
+      will-change: transform;
+    }
+    .btnBoost{
+      position:absolute;
+      right:16px;
+      bottom:26px;
+      width:92px;
+      height:92px;
+      border-radius:999px;
+      pointer-events:auto;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,255,0,0.16);
+      border:1px solid rgba(0,255,0,0.22);
+      color:#bfffbf;
+      font-weight:700;
+      user-select:none;
+      touch-action:none;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
+    .btnBoost:active{ transform: scale(0.98); }
+
+    /* Small phones */
+    @media (max-width: 480px){
+      .joyWrap{ width:130px; height:130px; left:12px; bottom:14px; }
+      .joyKnob{ width:62px; height:62px; margin-left:-31px; margin-top:-31px; }
+      .btnBoost{ width:84px; height:84px; right:14px; bottom:22px; }
+      .hud{ font-size:12px; left:10px; top:8px; }
+    }
   </style>
 </head>
 <body>
@@ -22,25 +87,33 @@
   <div id="hud" class="hud" style="display:none"></div>
   <canvas id="game" tabindex="0"></canvas>
 
+  <!-- Mobile Controls -->
+  <div id="mobileUI">
+    <div class="joyWrap" id="joyWrap">
+      <div class="joyBase"></div>
+      <div class="joyKnob" id="joyKnob"></div>
+    </div>
+    <div class="btnBoost" id="boostBtn">BOOST</div>
+  </div>
+
 <script>
 const WORLD_W = 3000, WORLD_H = 3000;
 const SEGMENT = 30;
 const ROOM_ID = "room1";
 
-const CLIENT_SPEED = 4; // только для глаз/направления, не для перемещения
+const CLIENT_SPEED = 4;
 
 /* ===== server speed model (match server!) ===== */
 const SERVER_TICK_SEC = 0.025;
 const SERVER_SPEED = 7;
 const SERVER_BOOST_MULT = 1.8;
 
-const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;                   // 280 px/s
-const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC; // 504 px/s
+const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;
+const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC;
 
-let predDirUnit = {x:1, y:0};     // направление для локального движения (сглаженное)
-let lastTurnTs = 0;               // анти-спам
-const TURN_MIN_MS = 55;           // минимум между сменами направления (подбери 45..70)
-
+let predDirUnit = {x:1, y:0};
+let lastTurnTs = 0;
+const TURN_MIN_MS = 55;
 
 let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
@@ -55,6 +128,47 @@ const menu=document.getElementById("menu"),
       hud=document.getElementById("hud"),
       ctx=canvas.getContext("2d");
 
+const mobileUI = document.getElementById("mobileUI");
+const joyWrap  = document.getElementById("joyWrap");
+const joyKnob  = document.getElementById("joyKnob");
+const boostBtn = document.getElementById("boostBtn");
+
+/* =========================
+   Mobile detection + scaling
+========================= */
+function isTouchDevice(){
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+}
+function isSmallScreen(){
+  return Math.min(window.innerWidth, window.innerHeight) <= 820;
+}
+function isMobileMode(){
+  // touch + маленький экран => включаем джойстик и уменьшаем зум змейки
+  return isTouchDevice() && isSmallScreen();
+}
+
+/* =========================
+   SCALE
+========================= */
+let SNAKE_SCALE = 1.35; // desktop default
+let GRID_STEP = Math.round(SEGMENT * 2.4);
+
+function applyScaleByDevice(){
+  if(isMobileMode()){
+    SNAKE_SCALE = 1.05;         // было слишком крупно
+    GRID_STEP = Math.round(SEGMENT * 3.1);
+  } else {
+    SNAKE_SCALE = 1.35;
+    GRID_STEP = Math.round(SEGMENT * 2.4);
+  }
+  // пересчёт размеров отрисовки
+  BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
+  HEAD_RADIUS = (BODY_WIDTH * 0.50);
+  EYE_WHITE_R = HEAD_RADIUS * 0.38;
+  EYE_PUPIL_R = EYE_WHITE_R * 0.45;
+  PUPIL_SHIFT = EYE_WHITE_R * 0.35;
+}
+
 function wsUrl(path){
   const proto = (location.protocol === "https:") ? "wss" : "ws";
   return `${proto}://${location.host}${path}`;
@@ -62,12 +176,6 @@ function wsUrl(path){
 
 function clamp01(v){ return Math.max(-1, Math.min(1, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
-
-/* =========================
-   SCALE
-========================= */
-const SNAKE_SCALE = 1.35;
-let GRID_STEP = Math.round(SEGMENT * 2.4);
 
 /* =========================
    FPS METER
@@ -86,7 +194,9 @@ function updateFpsOnRenderedFrame(timeMs){
     lastFpsTs = timeMs;
 
     lowDetail = fps < 45;
-    GRID_STEP = Math.round(SEGMENT * (lowDetail ? 3.2 : 2.4));
+    if(!isMobileMode()){
+      GRID_STEP = Math.round(SEGMENT * (lowDetail ? 3.2 : 2.4));
+    }
   }
 }
 
@@ -231,7 +341,7 @@ function sampleInterpSnake(id, renderTime){
 }
 
 /* =========================
-   ME: LOCAL PREDICTION (NO SNAP JITTER)
+   ME: LOCAL PREDICTION
 ========================= */
 let meBaseSnake = null;
 let meBaseHead  = null;
@@ -267,6 +377,7 @@ function resetDeathFlow(){
 function showMenuAfterDeath(){
   canvas.style.display="none";
   hud.style.display="none";
+  mobileUI.style.display="none";
   menu.style.display="flex";
 }
 
@@ -323,14 +434,11 @@ function setDirection(newDir){
 
   const now = performance.now();
 
-  // анти-спам: не даём менять направление слишком часто
-  // (но отправку на сервер всё равно можно делать по твоей логике)
   const dx = nx - wantDirUnit.x;
   const dy = ny - wantDirUnit.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
   if(changed && (now - lastTurnTs) < TURN_MIN_MS){
-    // направление на сервер можно НЕ менять (иначе читерство остаётся)
     return;
   }
   if(changed) lastTurnTs = now;
@@ -339,7 +447,6 @@ function setDirection(newDir){
   dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
   sendDirection(nx, ny);
 }
-
 
 function sendDirection(nx, ny){
   if(!ws) return;
@@ -375,7 +482,7 @@ function startInputHeartbeat(){
     if(!ws || ws.readyState !== 1) return;
     if(isDying || dead) return;
 
-    if(!useMouse){
+    if(!useMouse && !isMobileMode()){
       applyKeyboardVector(true);
     } else {
       sendDirection(wantDirUnit.x, wantDirUnit.y);
@@ -400,14 +507,14 @@ function updateCamera(renderMeSnake){
 }
 
 /* =========================
-   RENDER HELPERS
+   RENDER HELPERS (dynamic vars)
 ========================= */
-const BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
-const HEAD_RADIUS = (BODY_WIDTH * 0.50);
+let BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
+let HEAD_RADIUS = (BODY_WIDTH * 0.50);
 
-const EYE_WHITE_R = HEAD_RADIUS * 0.38;
-const EYE_PUPIL_R = EYE_WHITE_R * 0.45;
-const PUPIL_SHIFT = EYE_WHITE_R * 0.35;
+let EYE_WHITE_R = HEAD_RADIUS * 0.38;
+let EYE_PUPIL_R = EYE_WHITE_R * 0.45;
+let PUPIL_SHIFT = EYE_WHITE_R * 0.35;
 
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
@@ -549,6 +656,86 @@ function applyKeyboardVector(forceSend=false){
   else setDirection({x: dx, y: dy});
 }
 
+/* =========================
+   MOBILE JOYSTICK
+========================= */
+let joyActive = false;
+let joyCenter = {x:0,y:0};
+const JOY_MAX = 46; // px offset limit
+
+function setKnob(dx, dy){
+  joyKnob.style.transform = `translate(${dx}px,${dy}px)`;
+}
+
+function joyToDir(dx, dy){
+  const len = Math.hypot(dx,dy);
+  if(len < 4) return; // deadzone
+  const nx = dx / len;
+  const ny = dy / len;
+  setDirection({x:nx, y:ny});
+}
+
+function onJoyStart(e){
+  if(!isMobileMode()) return;
+  if(isDying || dead) return;
+  joyActive = true;
+
+  const r = joyWrap.getBoundingClientRect();
+  joyCenter.x = r.left + r.width/2;
+  joyCenter.y = r.top + r.height/2;
+
+  setKnob(0,0);
+  try{ joyWrap.setPointerCapture(e.pointerId); }catch(_){}
+  e.preventDefault();
+}
+
+function onJoyMove(e){
+  if(!joyActive) return;
+  const dx0 = e.clientX - joyCenter.x;
+  const dy0 = e.clientY - joyCenter.y;
+
+  const len = Math.hypot(dx0,dy0) || 1;
+  const k = (len > JOY_MAX) ? (JOY_MAX / len) : 1;
+
+  const dx = dx0 * k;
+  const dy = dy0 * k;
+
+  setKnob(dx, dy);
+  joyToDir(dx, dy);
+
+  e.preventDefault();
+}
+
+function onJoyEnd(e){
+  if(!joyActive) return;
+  joyActive = false;
+  setKnob(0,0);
+  e.preventDefault();
+}
+
+function onBoostDown(e){
+  if(!isMobileMode()) return;
+  if(isDying || dead) return;
+  sendBoost(true);
+  e.preventDefault();
+}
+function onBoostUp(e){
+  sendBoost(false);
+  e.preventDefault();
+}
+
+function bindMobileControls(){
+  // pointer events работают и для touch
+  joyWrap.addEventListener("pointerdown", onJoyStart);
+  joyWrap.addEventListener("pointermove", onJoyMove);
+  joyWrap.addEventListener("pointerup", onJoyEnd);
+  joyWrap.addEventListener("pointercancel", onJoyEnd);
+
+  boostBtn.addEventListener("pointerdown", onBoostDown);
+  boostBtn.addEventListener("pointerup", onBoostUp);
+  boostBtn.addEventListener("pointercancel", onBoostUp);
+  boostBtn.addEventListener("pointerleave", onBoostUp);
+}
 
 /* =========================
    DRAW LOOP
@@ -559,8 +746,9 @@ function draw(ts){
 
   updateRafHz(ts);
 
+  // desktop keyboard autopush
   if(!isDying && !dead){
-    if(!useMouse) applyKeyboardVector(true);
+    if(!useMouse && !isMobileMode()) applyKeyboardVector(true);
   }
 
   const newCap = getCapHz();
@@ -610,14 +798,11 @@ function draw(ts){
     const spd = (meBaseBoost ? SPEED_BOOST_PX_S : SPEED_BASE_PX_S);
     const ds = spd * (dtMs / 1000);
 
-    // плавно догоняем направление (чтобы не было "тормоза" на резких поворотах)
     const ux = wantDirUnit?.x ?? 1;
     const uy = wantDirUnit?.y ?? 0;
 
-    // alpha по времени кадра: 0.15..0.35 обычно норм
     const turnAlpha = 1 - Math.exp(-dtMs / 65);
 
-    // lerp + нормализация
     predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
     predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
     const pl = Math.hypot(predDirUnit.x, predDirUnit.y) || 1;
@@ -626,8 +811,6 @@ function draw(ts){
     mePredHead.x += predDirUnit.x * ds;
     mePredHead.y += predDirUnit.y * ds;
 
-
-    // clamp отрыва
     const dx = mePredHead.x - meBaseHead.x;
     const dy = mePredHead.y - meBaseHead.y;
     const maxLead = 90;
@@ -638,25 +821,19 @@ function draw(ts){
       mePredHead.y = meBaseHead.y + dy * k;
     }
 
-    // сдвигаем всю змею как rigid body
-    // сдвиг с затуханием: голова почти полностью, хвост почти нет
     const offX = mePredHead.x - meBaseHead.x;
     const offY = mePredHead.y - meBaseHead.y;
 
     const n = meBaseSnake.length;
-
-    // “длина затухания” в сегментах: чем больше — тем более “резиновая”
     const predSnake = new Array(n);
-
     const falloffLen = 10;
     for(let i=0;i<n;i++){
-    const t = i / falloffLen;
-    const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
-    const p = meBaseSnake[i];
-    predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
+      const t = i / falloffLen;
+      const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
+      const p = meBaseSnake[i];
+      predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
     }
 
-    // чуть сгладим (чтобы глаза/камера вообще были шелковые)
     const alphaMe = 1 - Math.exp(-dtFrame / 32);
     const smoothMe = smoothSnake(playerId, predSnake, alphaMe);
 
@@ -667,7 +844,7 @@ function draw(ts){
     };
   }
 
-  /* ===== OTHERS: snapshot interpolation + smoothing ===== */
+  /* ===== OTHERS ===== */
   const renderTime = timeMs - interpOthers;
   for(const id in players){
     if(id === playerId) continue;
@@ -686,8 +863,8 @@ function draw(ts){
   const boostActive = !!renderPlayers[playerId]?.boost;
 
   hud.textContent =
-`Режим: ${useMouse ? "мышь" : "WASD/ФЦЫВ"} | Игроков: ${Object.keys(players).length} | FPS: ${fps}
-Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.round(rtt)}ms | Shift: ускорение (${boostActive ? "вкл" : "выкл"}) | M: режим`;
+`Режим: ${isMobileMode() ? "джойстик" : (useMouse ? "мышь" : "WASD/ФЦЫВ")} | Игроков: ${Object.keys(players).length} | FPS: ${fps}
+Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.round(rtt)}ms | Boost: ${boostActive ? "вкл" : "выкл"}`;
 
   updateCamera(meRender);
 
@@ -803,7 +980,6 @@ function resetMePrediction(){
   lastTurnTs = 0;
 }
 
-
 function blendSnake(prev, next, k){
   if(!next || !next.length) return next;
   if(!prev || !prev.length) return next.map(p => ({x:p.x, y:p.y}));
@@ -836,9 +1012,19 @@ function startGame(){
   for(const id in renderCache) delete renderCache[id];
   foodBirth.clear();
 
+  // device-based scale + UI
+  applyScaleByDevice();
+
   menu.style.display="none";
   canvas.style.display="block";
   hud.style.display="block";
+
+  if(isMobileMode()){
+    mobileUI.style.display="block";
+    useMouse = false;
+  } else {
+    mobileUI.style.display="none";
+  }
 
   canvas.width=innerWidth;
   canvas.height=innerHeight;
@@ -888,44 +1074,40 @@ function startGame(){
 
     for (const id in players) pushSnapshot(id, players[id]);
 
-    // update ME prediction base from latest server state (soft correction)
     const me = players[playerId];
     if(me && me.snake && me.snake.length){
-    const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
+      const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
+      meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
 
-    // сглаживаем "форму" (именно тело) между апдейтами сервера
-    // k: 0.25..0.45 (чем больше — тем быстрее догоняет)
-    meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
+      meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
+      meBaseBoost = !!me.boost;
 
-    meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
-    meBaseBoost = !!me.boost;
-
-    if(!mePredHead){
-    mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
-    predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
+      if(!mePredHead){
+        mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
+        predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
+      } else {
+        const k = 0.35;
+        mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
+        mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
+      }
     }
-    else {
-            const k = 0.35;
-            mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
-            mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
-        }
-        }
-
   };
 
   ws.onclose=()=>{
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
+    sendBoost(false);
     if(!isDying) setTimeout(()=>showMenuAfterDeath(), 150);
   };
 }
 
 /* =========================
-   INPUT
+   INPUT (desktop mouse)
 ========================= */
 canvas.addEventListener("mousemove", e=>{
   if(isDying) return;
   if(!useMouse) return;
+  if(isMobileMode()) return;
   const me = players[playerId];
   if(!me || dead || !me.snake || !me.snake[0]) return;
   const head = me.snake[0];
@@ -936,6 +1118,8 @@ canvas.addEventListener("mousemove", e=>{
 
 document.addEventListener("keydown", e=>{
   if(isDying) return;
+  if(isMobileMode()) return;
+
   if(e.key === "m" || e.key === "M"){
     useMouse = !useMouse;
     keysDown.clear();
@@ -945,6 +1129,8 @@ document.addEventListener("keydown", e=>{
 document.addEventListener("keydown", e=>{
   if(isDying) return;
   if(dead) return;
+  if(isMobileMode()) return;
+
   const k = normKey(e.key);
 
   if(k === "shift"){
@@ -960,6 +1146,7 @@ document.addEventListener("keydown", e=>{
 });
 
 document.addEventListener("keyup", e=>{
+  if(isMobileMode()) return;
   const k = normKey(e.key);
 
   if(k === "shift"){
@@ -974,16 +1161,25 @@ document.addEventListener("keyup", e=>{
   }
 });
 
+/* stop boost when app loses focus */
 window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
+
+/* bind mobile controls once */
+bindMobileControls();
 
 playBtn.onclick=startGame;
 
 window.addEventListener("resize",()=>{
   canvas.width=innerWidth;
   canvas.height=innerHeight;
+  applyScaleByDevice();
+  if(canvas.style.display !== "none"){
+    mobileUI.style.display = isMobileMode() ? "block" : "none";
+  }
 });
 
+applyScaleByDevice();
 requestAnimationFrame(draw);
 </script>
 </body>
