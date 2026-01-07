@@ -23,6 +23,11 @@
   <canvas id="game" tabindex="0"></canvas>
 
 <script>
+/*
+  FIX: игра не запускалась из-за SyntaxError (в прошлой версии было два раза `let capHz = 60;`).
+  Здесь capHz объявлен один раз.
+*/
+
 const WORLD_W = 3000, WORLD_H = 3000;
 const SEGMENT = 30;
 const ROOM_ID = "room1";
@@ -48,7 +53,7 @@ let useMouse = false;
 let serverBoosting = false;
 const keysDown = new Set();
 
-/* ===== FIX: axis priority without key-repeat jitter ===== */
+/* axis priority without key-repeat jitter */
 let lastAxisX = 1;   // 1 => right, -1 => left
 let lastAxisY = -1;  // 1 => down,  -1 => up
 
@@ -330,9 +335,7 @@ function setDirection(newDir){
   const dy = ny - wantDirUnit.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
-  if(changed && (now - lastTurnTs) < TURN_MIN_MS){
-    return;
-  }
+  if(changed && (now - lastTurnTs) < TURN_MIN_MS) return;
   if(changed) lastTurnTs = now;
 
   wantDirUnit = {x:nx, y:ny};
@@ -367,6 +370,7 @@ function sendBoost(state){
   ws.send(JSON.stringify({boost: state}));
 }
 
+/* keyboard poll only here */
 let inputTimer = null;
 function startInputHeartbeat(){
   if(inputTimer) clearInterval(inputTimer);
@@ -375,9 +379,7 @@ function startInputHeartbeat(){
     if(isDying || dead) return;
 
     if(!useMouse){
-      applyKeyboardVector(true);
-    } else {
-      sendDirection(wantDirUnit.x, wantDirUnit.y);
+      applyKeyboardVector();
     }
   }, 40);
 }
@@ -526,7 +528,7 @@ function normKey(k){
   return k;
 }
 
-function applyKeyboardVector(forceSend=false){
+function applyKeyboardVector(){
   if(!ws || dead) return;
   if(useMouse) return;
 
@@ -537,34 +539,17 @@ function applyKeyboardVector(forceSend=false){
 
   let dx = 0, dy = 0;
 
-  // X axis
-  if(a && d){
-    dx = lastAxisX;          // фиксируем по последнему НЕповторному нажатию
-  } else if(a){
-    dx = -1;
-  } else if(d){
-    dx =  1;
-  }
+  if(a && d) dx = lastAxisX;
+  else if(a) dx = -1;
+  else if(d) dx = 1;
 
-  // Y axis
-  if(w && s){
-    dy = lastAxisY;
-  } else if(w){
-    dy = -1;
-  } else if(s){
-    dy =  1;
-  }
+  if(w && s) dy = lastAxisY;
+  else if(w) dy = -1;
+  else if(s) dy = 1;
 
   if(dx === 0 && dy === 0) return;
 
-  const len = Math.hypot(dx,dy) || 1;
-  const nx = dx/len, ny = dy/len;
-
-  wantDirUnit = {x:nx, y:ny};
-  dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
-
-  if(forceSend) sendDirection(nx, ny);
-  else setDirection({x: dx, y: dy});
+  setDirection({x: dx, y: dy});
 }
 
 /* =========================
@@ -575,10 +560,6 @@ function draw(ts){
   if(canvas.style.display==="none") return;
 
   updateRafHz(ts);
-
-  if(!isDying && !dead){
-    if(!useMouse) applyKeyboardVector(true);
-  }
 
   const newCap = getCapHz();
   if(newCap !== capHz) capHz = newCap;
@@ -630,10 +611,16 @@ function draw(ts){
     const ux = wantDirUnit?.x ?? 1;
     const uy = wantDirUnit?.y ?? 0;
 
-    const turnAlpha = 1 - Math.exp(-dtMs / 65);
+    const dot = predDirUnit.x*ux + predDirUnit.y*uy;
+    if(dot < 0.25){
+      predDirUnit.x = ux;
+      predDirUnit.y = uy;
+    } else {
+      const turnAlpha = 1 - Math.exp(-dtMs / 35);
+      predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
+      predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
+    }
 
-    predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
-    predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
     const pl = Math.hypot(predDirUnit.x, predDirUnit.y) || 1;
     predDirUnit.x /= pl; predDirUnit.y /= pl;
 
@@ -656,7 +643,7 @@ function draw(ts){
     const n = meBaseSnake.length;
     const predSnake = new Array(n);
 
-    const falloffLen = 10;
+    const falloffLen = 6;
     for(let i=0;i<n;i++){
       const t = i / falloffLen;
       const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
@@ -718,7 +705,6 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
     const y = f.y - cameraY + SEGMENT/2;
 
     const isCorpse = (f.kind === "corpse");
-
     let alphaMul = 1.0;
     let scaleMul = 1.0;
 
@@ -756,8 +742,7 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
 
   for(const id in renderPlayers){
     const rp = renderPlayers[id];
-    const isMe = (id === playerId);
-    drawSnakeRibbon(rp.snake, rp.color, rp.boost, isMe, timeMs);
+    drawSnakeRibbon(rp.snake, rp.color, rp.boost, id === playerId, timeMs);
   }
 
   ctx.strokeStyle="red";
@@ -837,7 +822,6 @@ function startGame(){
   lastSent = 0;
   lastDirSent = {x:1,y:0};
 
-  // axis default
   lastAxisX = 1;
   lastAxisY = -1;
 
@@ -920,6 +904,7 @@ function startGame(){
   ws.onclose=()=>{
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
+    sendBoost(false);
     if(!isDying) setTimeout(()=>showMenuAfterDeath(), 150);
   };
 }
@@ -966,15 +951,12 @@ document.addEventListener("keydown", e=>{
   }
 
   if(k === "w" || k === "a" || k === "s" || k === "d"){
-    // ===== FIX: ignore key-repeat completely =====
     if(keysDown.has(k)){
       e.preventDefault?.();
       return;
     }
-
     keysDown.add(k);
     updateAxisOnPress(k);
-
     e.preventDefault?.();
   }
 });
@@ -997,7 +979,7 @@ document.addEventListener("keyup", e=>{
 window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
-playBtn.onclick=startGame;
+playBtn.addEventListener("click", startGame);
 
 window.addEventListener("resize",()=>{
   canvas.width=innerWidth;
