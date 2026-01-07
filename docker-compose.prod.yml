@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.prod
     image: clonio_app_prod_image:latest
     container_name: clonio_app_prod
-    command: "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8000"
+    command: "gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind=0.0.0.0:8000"
     restart: on-failure:5
     ports:
       - 8000:8000
