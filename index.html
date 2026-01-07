@@ -27,20 +27,19 @@ const WORLD_W = 3000, WORLD_H = 3000;
 const SEGMENT = 30;
 const ROOM_ID = "room1";
 
-const CLIENT_SPEED = 4; // только для глаз/направления, не для перемещения
+const CLIENT_SPEED = 4;
 
 /* ===== server speed model (match server!) ===== */
 const SERVER_TICK_SEC = 0.025;
 const SERVER_SPEED = 7;
 const SERVER_BOOST_MULT = 1.8;
 
-const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;                   // 280 px/s
-const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC; // 504 px/s
+const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;
+const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC;
 
-let predDirUnit = {x:1, y:0};     // направление для локального движения (сглаженное)
-let lastTurnTs = 0;               // анти-спам
-const TURN_MIN_MS = 55;           // минимум между сменами направления (подбери 45..70)
-
+let predDirUnit = {x:1, y:0};
+let lastTurnTs = 0;
+const TURN_MIN_MS = 55;
 
 let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
@@ -48,6 +47,10 @@ let useMouse = false;
 
 let serverBoosting = false;
 const keysDown = new Set();
+
+/* ===== FIX: axis priority without key-repeat jitter ===== */
+let lastAxisX = 1;   // 1 => right, -1 => left
+let lastAxisY = -1;  // 1 => down,  -1 => up
 
 const menu=document.getElementById("menu"),
       playBtn=document.getElementById("playBtn"),
@@ -231,7 +234,7 @@ function sampleInterpSnake(id, renderTime){
 }
 
 /* =========================
-   ME: LOCAL PREDICTION (NO SNAP JITTER)
+   ME: LOCAL PREDICTION
 ========================= */
 let meBaseSnake = null;
 let meBaseHead  = null;
@@ -323,14 +326,11 @@ function setDirection(newDir){
 
   const now = performance.now();
 
-  // анти-спам: не даём менять направление слишком часто
-  // (но отправку на сервер всё равно можно делать по твоей логике)
   const dx = nx - wantDirUnit.x;
   const dy = ny - wantDirUnit.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
   if(changed && (now - lastTurnTs) < TURN_MIN_MS){
-    // направление на сервер можно НЕ менять (иначе читерство остаётся)
     return;
   }
   if(changed) lastTurnTs = now;
@@ -339,7 +339,6 @@ function setDirection(newDir){
   dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
   sendDirection(nx, ny);
 }
-
 
 function sendDirection(nx, ny){
   if(!ws) return;
@@ -516,7 +515,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 }
 
 /* =========================
-   KEYBOARD: WASD + ФЦЫВ
+   KEYBOARD
 ========================= */
 function normKey(k){
   k = (k || "").toLowerCase();
@@ -531,11 +530,30 @@ function applyKeyboardVector(forceSend=false){
   if(!ws || dead) return;
   if(useMouse) return;
 
+  const w = keysDown.has("w");
+  const s = keysDown.has("s");
+  const a = keysDown.has("a");
+  const d = keysDown.has("d");
+
   let dx = 0, dy = 0;
-  if(keysDown.has("w")) dy -= 1;
-  if(keysDown.has("s")) dy += 1;
-  if(keysDown.has("a")) dx -= 1;
-  if(keysDown.has("d")) dx += 1;
+
+  // X axis
+  if(a && d){
+    dx = lastAxisX;          // фиксируем по последнему НЕповторному нажатию
+  } else if(a){
+    dx = -1;
+  } else if(d){
+    dx =  1;
+  }
+
+  // Y axis
+  if(w && s){
+    dy = lastAxisY;
+  } else if(w){
+    dy = -1;
+  } else if(s){
+    dy =  1;
+  }
 
   if(dx === 0 && dy === 0) return;
 
@@ -548,7 +566,6 @@ function applyKeyboardVector(forceSend=false){
   if(forceSend) sendDirection(nx, ny);
   else setDirection({x: dx, y: dy});
 }
-
 
 /* =========================
    DRAW LOOP
@@ -610,14 +627,11 @@ function draw(ts){
     const spd = (meBaseBoost ? SPEED_BOOST_PX_S : SPEED_BASE_PX_S);
     const ds = spd * (dtMs / 1000);
 
-    // плавно догоняем направление (чтобы не было "тормоза" на резких поворотах)
     const ux = wantDirUnit?.x ?? 1;
     const uy = wantDirUnit?.y ?? 0;
 
-    // alpha по времени кадра: 0.15..0.35 обычно норм
     const turnAlpha = 1 - Math.exp(-dtMs / 65);
 
-    // lerp + нормализация
     predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
     predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
     const pl = Math.hypot(predDirUnit.x, predDirUnit.y) || 1;
@@ -626,37 +640,30 @@ function draw(ts){
     mePredHead.x += predDirUnit.x * ds;
     mePredHead.y += predDirUnit.y * ds;
 
-
-    // clamp отрыва
     const dx = mePredHead.x - meBaseHead.x;
     const dy = mePredHead.y - meBaseHead.y;
     const maxLead = 90;
-    const d = Math.hypot(dx, dy);
-    if(d > maxLead){
-      const k = maxLead / d;
+    const dd = Math.hypot(dx, dy);
+    if(dd > maxLead){
+      const k = maxLead / dd;
       mePredHead.x = meBaseHead.x + dx * k;
       mePredHead.y = meBaseHead.y + dy * k;
     }
 
-    // сдвигаем всю змею как rigid body
-    // сдвиг с затуханием: голова почти полностью, хвост почти нет
     const offX = mePredHead.x - meBaseHead.x;
     const offY = mePredHead.y - meBaseHead.y;
 
     const n = meBaseSnake.length;
-
-    // “длина затухания” в сегментах: чем больше — тем более “резиновая”
     const predSnake = new Array(n);
 
     const falloffLen = 10;
     for(let i=0;i<n;i++){
-    const t = i / falloffLen;
-    const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
-    const p = meBaseSnake[i];
-    predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
+      const t = i / falloffLen;
+      const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
+      const p = meBaseSnake[i];
+      predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
     }
 
-    // чуть сгладим (чтобы глаза/камера вообще были шелковые)
     const alphaMe = 1 - Math.exp(-dtFrame / 32);
     const smoothMe = smoothSnake(playerId, predSnake, alphaMe);
 
@@ -667,7 +674,7 @@ function draw(ts){
     };
   }
 
-  /* ===== OTHERS: snapshot interpolation + smoothing ===== */
+  /* ===== OTHERS ===== */
   const renderTime = timeMs - interpOthers;
   for(const id in players){
     if(id === playerId) continue;
@@ -803,7 +810,6 @@ function resetMePrediction(){
   lastTurnTs = 0;
 }
 
-
 function blendSnake(prev, next, k){
   if(!next || !next.length) return next;
   if(!prev || !prev.length) return next.map(p => ({x:p.x, y:p.y}));
@@ -830,6 +836,10 @@ function startGame(){
   serverBoosting = false;
   lastSent = 0;
   lastDirSent = {x:1,y:0};
+
+  // axis default
+  lastAxisX = 1;
+  lastAxisY = -1;
 
   camHX = null; camHY = null;
   for(const id in snapshots) delete snapshots[id];
@@ -888,29 +898,23 @@ function startGame(){
 
     for (const id in players) pushSnapshot(id, players[id]);
 
-    // update ME prediction base from latest server state (soft correction)
     const me = players[playerId];
     if(me && me.snake && me.snake.length){
-    const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
+      const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
+      meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
 
-    // сглаживаем "форму" (именно тело) между апдейтами сервера
-    // k: 0.25..0.45 (чем больше — тем быстрее догоняет)
-    meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
+      meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
+      meBaseBoost = !!me.boost;
 
-    meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
-    meBaseBoost = !!me.boost;
-
-    if(!mePredHead){
-    mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
-    predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
+      if(!mePredHead){
+        mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
+        predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
+      } else {
+        const k = 0.35;
+        mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
+        mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
+      }
     }
-    else {
-            const k = 0.35;
-            mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
-            mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
-        }
-        }
-
   };
 
   ws.onclose=()=>{
@@ -942,9 +946,17 @@ document.addEventListener("keydown", e=>{
   }
 });
 
+function updateAxisOnPress(k){
+  if(k === "a") lastAxisX = -1;
+  if(k === "d") lastAxisX =  1;
+  if(k === "w") lastAxisY = -1;
+  if(k === "s") lastAxisY =  1;
+}
+
 document.addEventListener("keydown", e=>{
   if(isDying) return;
   if(dead) return;
+
   const k = normKey(e.key);
 
   if(k === "shift"){
@@ -954,7 +966,15 @@ document.addEventListener("keydown", e=>{
   }
 
   if(k === "w" || k === "a" || k === "s" || k === "d"){
+    // ===== FIX: ignore key-repeat completely =====
+    if(keysDown.has(k)){
+      e.preventDefault?.();
+      return;
+    }
+
     keysDown.add(k);
+    updateAxisOnPress(k);
+
     e.preventDefault?.();
   }
 });
