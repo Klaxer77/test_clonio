@@ -1,9 +1,3 @@
-<!-- =========================
-index.html (FULL) — FIXES:
-1) интерполяция учитывает реальный интервал снапшотов (PLAYERS_SEND_EVERY=1)
-2) для СЕБЯ: меньшая задержка + лёгкая экстраполяция (меньше input-lag)
-3) boost-эффект рисуется У ВСЕХ (не только isMe)
-========================= -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -11,30 +5,12 @@ index.html (FULL) — FIXES:
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Snake Smooth Multiplayer</title>
   <style>
-    html,body{
-      margin:0;padding:0;overflow:hidden;
-      font-family:Arial,sans-serif;
-      background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
-      color:white;
-    }
+    html,body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);color:white;}
     canvas{display:block;outline:none;}
-    #menu{
-      position:fixed;inset:0;
-      display:flex;align-items:center;justify-content:center;flex-direction:column;
-      background: rgba(0,0,0,0.82);
-      gap:14px;text-align:center;padding:24px;box-sizing:border-box;
-    }
-    button{
-      font-size:24px;padding:15px 40px;cursor:pointer;border:none;
-      background:lime;color:black;border-radius:10px;
-    }
+    #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background: rgba(0,0,0,0.82);gap:14px;text-align:center;padding:24px;box-sizing:border-box;}
+    button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
     button:hover{background:#7CFF7C;}
-    .hud{
-      position:fixed;left:12px;top:10px;z-index:5;
-      font-size:14px;opacity:.85;user-select:none;pointer-events:none;
-      text-shadow:0 1px 2px rgba(0,0,0,.6);
-      line-height:1.35;white-space:pre;
-    }
+    .hud{position:fixed;left:12px;top:10px;z-index:5;font-size:14px;opacity:.85;user-select:none;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);line-height:1.35;white-space:pre;}
   </style>
 </head>
 <body>
@@ -119,25 +95,15 @@ function startRttPing(){
    ADAPTIVE FPS CAP + SNAP TIMING
 ========================= */
 const TARGET_CAP = 75;
-
-// ДОЛЖНО СОВПАДАТЬ С СЕРВЕРОМ
 const SERVER_TICK_MS = 25;
-const PLAYERS_SEND_EVERY = 1;                 // <-- мы под это фиксили сервер
-const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY; // 25
-const MIN_INTERP_MS = Math.max(55, Math.ceil(SNAP_INTERVAL_MS * 2.2)); // ~55..60
+const PLAYERS_SEND_EVERY = 1;
+const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY;
+const MIN_INTERP_MS = Math.max(55, Math.ceil(SNAP_INTERVAL_MS * 2.2));
 
-const rafMeter = {
-  lastTs: null,
-  samples: [],
-  maxSamples: 90,
-  hz: 60
-};
+const rafMeter = { lastTs: null, samples: [], maxSamples: 90, hz: 60 };
 
 function updateRafHz(ts){
-  if(rafMeter.lastTs == null){
-    rafMeter.lastTs = ts;
-    return;
-  }
+  if(rafMeter.lastTs == null){ rafMeter.lastTs = ts; return; }
   const dt = ts - rafMeter.lastTs;
   rafMeter.lastTs = ts;
   if(dt <= 0) return;
@@ -161,7 +127,6 @@ function updateRafHz(ts){
     }
     return (bestD <= 3.0) ? best : v;
   };
-
   rafMeter.hz = snap(med);
 }
 
@@ -185,7 +150,6 @@ function smoothSnake(id, targetSnake, alpha){
 
   const n = targetSnake.length;
   const out = new Array(n);
-
   for(let i=0;i<n;i++){
     const tp = targetSnake[i];
     const pp = prev[i] || prev[prev.length - 1] || tp;
@@ -197,10 +161,10 @@ function smoothSnake(id, targetSnake, alpha){
 }
 
 /* =========================
-   SNAPSHOTS + EXTRAPOLATION (для себя)
+   SNAPSHOTS
 ========================= */
 const snapshots = {};
-const SNAP_MAX = 12;
+const SNAP_MAX = 18; // было 12, чуть больше буфер
 
 function pushSnapshot(id, pl){
   const t = performance.now();
@@ -232,7 +196,6 @@ function sampleInterpSnake(id, renderTime){
     }
   }
 
-  // вне диапазона — вернём край
   if(!a || !b){
     if(renderTime < q[0].t) return {snake:q[0].snake, boost:q[0].boost, color:q[0].color};
     return {snake:q[q.length-1].snake, boost:q[q.length-1].boost, color:q[q.length-1].color};
@@ -254,7 +217,6 @@ function sampleInterpSnake(id, renderTime){
   return {snake: out, boost: b.boost, color: b.color};
 }
 
-// очень лёгкая экстраполяция ТОЛЬКО ДЛЯ СЕБЯ: если renderTime уже “в будущем” относительно последнего снапа
 function sampleMe(renderTime){
   const id = playerId;
   const q = snapshots[id];
@@ -262,10 +224,7 @@ function sampleMe(renderTime){
   const last = q[q.length-1];
   const prev = q.length >= 2 ? q[q.length-2] : null;
 
-  // в пределах — обычная интерполяция
   if(renderTime <= last.t) return sampleInterpSnake(id, renderTime);
-
-  // дальше — экстраполируем сдвигом по скорости головы
   if(!prev || !prev.snake?.length || !last.snake?.length) return {snake:last.snake, boost:last.boost, color:last.color};
 
   const dt = Math.max(1, last.t - prev.t);
@@ -275,7 +234,7 @@ function sampleMe(renderTime){
   const vx = (hx1 - hx0) / dt;
   const vy = (hy1 - hy0) / dt;
 
-  const lead = Math.min(65, renderTime - last.t); // не улетать далеко
+  const lead = Math.min(65, renderTime - last.t);
   const dx = vx * lead;
   const dy = vy * lead;
 
@@ -305,7 +264,6 @@ function resetDeathFlow(){
   deathFade = 0;
   gotPostDeathState = false;
   postDeathWaitMs = 0;
-
   draw._lastDeathTs = null;
 }
 
@@ -353,10 +311,11 @@ function easeOutCubic(t){
 }
 
 /* =========================
-   CONTROL (faster sendDirection)
+   CONTROL (input-fix)
 ========================= */
 let lastSent = 0;
 let lastDirSent = {x:1, y:0};
+let wantDirUnit = {x:1, y:0}; // именно unit, то что уходит на сервер
 
 function setDirection(newDir, source="mouse"){
   const len = Math.hypot(newDir.x,newDir.y);
@@ -365,17 +324,8 @@ function setDirection(newDir, source="mouse"){
   const nx = newDir.x/len;
   const ny = newDir.y/len;
 
-  if(source === "mouse"){
-    const ol = Math.hypot(dir.x,dir.y) || 1;
-    const ox = dir.x/ol;
-    const oy = dir.y/ol;
-
-    const dot = clamp01(ox*nx + oy*ny);
-    const angle = Math.acos(dot);
-
-    const MAX_TURN_ANGLE = Math.PI/3;
-    if(angle > MAX_TURN_ANGLE) return;
-  }
+  // ВАЖНО: убрали жёсткий лимит угла, он часто создавал ощущение "управление пропало"
+  wantDirUnit = {x:nx, y:ny};
 
   dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
   sendDirection(nx, ny);
@@ -384,6 +334,7 @@ function setDirection(newDir, source="mouse"){
 function sendDirection(nx, ny){
   if(!ws) return;
   if(isDying || dead) return;
+  if(ws.readyState !== 1) return;
 
   const now = performance.now();
 
@@ -391,8 +342,9 @@ function sendDirection(nx, ny){
   const dy = ny - lastDirSent.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
-  if(!changed && (now - lastSent) < 80) return;
-  if((now - lastSent) < 16) return;
+  // heartbeat: даже если не менялось, раз в 140мс отправим
+  if(!changed && (now - lastSent) < 140) return;
+  if((now - lastSent) < 14) return;
 
   lastSent = now;
   lastDirSent = {x:nx, y:ny};
@@ -401,9 +353,27 @@ function sendDirection(nx, ny){
 
 function sendBoost(state){
   if(!ws) return;
+  if(ws.readyState !== 1) return;
   if(state === serverBoosting) return;
   serverBoosting = state;
   ws.send(JSON.stringify({boost: state}));
+}
+
+/* input heartbeat, чтобы при просадках FPS управление не "умирало" */
+let inputTimer = null;
+function startInputHeartbeat(){
+  if(inputTimer) clearInterval(inputTimer);
+  inputTimer = setInterval(()=>{
+    if(!ws || ws.readyState !== 1) return;
+    if(isDying || dead) return;
+
+    if(!useMouse){
+      applyKeyboardVector(true);
+    } else {
+      // для мыши тоже дожимаем последнее направление
+      sendDirection(wantDirUnit.x, wantDirUnit.y);
+    }
+  }, 40);
 }
 
 /* =========================
@@ -493,15 +463,18 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
-  // BOOST ЭФФЕКТ ВИДЕН У ВСЕХ (но бюджетно)
-  if(boost && !lowDetail){
+  // BOOST: видно у всех, даже в lowDetail (просто дешевле)
+  if(boost){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
     const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
 
+    const glowAlpha = lowDetail ? 0.10 : (0.16 + 0.10*pulse1);
+    const glowW = BODY_WIDTH * ((isMe ? 2.10 : 1.95) + 0.45*pulse2);
+
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    ctx.strokeStyle = `rgba(255,255,255,${0.10 + 0.10*pulse1})`;
-    ctx.lineWidth = BODY_WIDTH * ((isMe ? 2.05 : 1.65) + 0.35*pulse2);
+    ctx.strokeStyle = `rgba(255,255,255,${glowAlpha})`;
+    ctx.lineWidth = glowW;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -548,7 +521,7 @@ function normKey(k){
   return k;
 }
 
-function applyKeyboardVector(){
+function applyKeyboardVector(forceSend=false){
   if(!ws || dead) return;
   if(useMouse) return;
 
@@ -559,7 +532,15 @@ function applyKeyboardVector(){
   if(keysDown.has("d")) dx += 1;
 
   if(dx === 0 && dy === 0) return;
-  setDirection({x: dx, y: dy}, "keys");
+
+  const len = Math.hypot(dx,dy) || 1;
+  const nx = dx/len, ny = dy/len;
+
+  wantDirUnit = {x:nx, y:ny};
+  dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
+
+  if(forceSend) sendDirection(nx, ny);
+  else setDirection({x: dx, y: dy}, "keys");
 }
 
 /* =========================
@@ -571,9 +552,13 @@ function draw(ts){
 
   updateRafHz(ts);
 
+  // ВАЖНО: input обрабатываем каждый rAF, не завязываем на cap
+  if(!isDying && !dead){
+    if(!useMouse) applyKeyboardVector(true);
+  }
+
   const newCap = getCapHz();
   if(newCap !== capHz) capHz = newCap;
-
   const stepMs = 1000 / capHz;
 
   if(draw._lastRafTs == null){
@@ -595,8 +580,6 @@ function draw(ts){
   const timeMs = ts;
 
   updateFpsOnRenderedFrame(timeMs);
-
-  if(!isDying) applyKeyboardVector();
   cleanupSnapshots();
 
   const gradient = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
@@ -605,32 +588,33 @@ function draw(ts){
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Для СЕБЯ держим задержку меньше, для остальных — обычная (чтобы не дёргались)
   const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
   const interpOthers = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
   const interpMe     = isDying ? 40 : Math.max(28, Math.min(55, baseDelay * 0.25));
 
   const renderPlayers = {};
 
-  // сначала себя
+  // себя
   if(players[playerId]){
     const spMe = sampleMe(timeMs - interpMe);
     if(spMe){
-      const tau = 55;
+      const n = spMe.snake?.length || 0;
+      const tau = Math.min(110, 55 + n * 0.08);     // длина больше -> мягче
       const alpha = 1 - Math.exp(-dtFrame / tau);
       const smooth = smoothSnake(playerId, spMe.snake, alpha);
       renderPlayers[playerId] = { snake: smooth, boost: spMe.boost, color: spMe.color };
     }
   }
 
-  // остальных — обычная интерполяция
+  // остальные
   const renderTime = timeMs - interpOthers;
   for(const id in players){
     if(id === playerId) continue;
     const sp = sampleInterpSnake(id, renderTime);
     if(!sp) continue;
 
-    const tau = 110;
+    const n = sp.snake?.length || 0;
+    const tau = Math.min(180, 110 + n * 0.10);      // длинные -> мягче, меньше дёрг
     const alpha = 1 - Math.exp(-dtFrame / tau);
 
     const smooth = smoothSnake(id, sp.snake, alpha);
@@ -651,12 +635,8 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
   const gy0 = -((cameraY % GRID_STEP + GRID_STEP) % GRID_STEP);
 
   ctx.beginPath();
-  for(let x=gx0; x<canvas.width; x+=GRID_STEP){
-    ctx.moveTo(x,0); ctx.lineTo(x,canvas.height);
-  }
-  for(let y=gy0; y<canvas.height; y+=GRID_STEP){
-    ctx.moveTo(0,y); ctx.lineTo(canvas.width,y);
-  }
+  for(let x=gx0; x<canvas.width; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); }
+  for(let y=gy0; y<canvas.height; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); }
   ctx.stroke();
 
   let corpseGlowBudget = lowDetail ? 0 : 120;
@@ -690,7 +670,6 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
     ctx.save();
     if(isCorpse){
       ctx.globalAlpha = alphaMul;
-
       if(corpseGlowBudget > 0){
         corpseGlowBudget--;
         ctx.shadowColor = f.color || "white";
@@ -758,6 +737,7 @@ function startGame(){
 
   dead = false;
   dir = {x:1,y:0};
+  wantDirUnit = {x:1,y:0};
   players = {};
   foods = [];
   keysDown.clear();
@@ -781,7 +761,10 @@ function startGame(){
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
 
-  ws.onopen = () => startRttPing();
+  ws.onopen = () => {
+    startRttPing();
+    startInputHeartbeat();
+  };
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
@@ -821,6 +804,7 @@ function startGame(){
 
   ws.onclose=()=>{
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
+    if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
     if(!isDying) setTimeout(()=>showMenuAfterDeath(), 150);
   };
 }
