@@ -2,15 +2,70 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Snake Smooth Multiplayer</title>
   <style>
-    html,body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);color:white;touch-action:none;}
-    canvas{display:block;outline:none;}
-    #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background: rgba(0,0,0,0.82);gap:14px;text-align:center;padding:24px;box-sizing:border-box;}
-    button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
+    html,body{
+      margin:0;padding:0;
+      width:100%;height:100%;
+      overflow:hidden;
+      font-family:Arial,sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
+      color:white;
+      touch-action:none;
+      -webkit-text-size-adjust:100%;
+    }
+    body{ position:fixed; inset:0; }
+
+    canvas{
+      position:fixed;
+      inset:0;
+      width:100vw;
+      height:100vh;
+      display:block;
+      outline:none;
+    }
+
+    #menu{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      background: rgba(0,0,0,0.82);
+      gap:14px;
+      text-align:center;
+      padding:24px;
+      box-sizing:border-box;
+      z-index:30;
+    }
+    button{
+      font-size:24px;
+      padding:15px 40px;
+      cursor:pointer;
+      border:none;
+      background:lime;
+      color:black;
+      border-radius:10px;
+      touch-action:manipulation;
+    }
     button:hover{background:#7CFF7C;}
-    .hud{position:fixed;left:12px;top:10px;z-index:5;font-size:14px;opacity:.85;user-select:none;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);line-height:1.35;white-space:pre;}
+
+    .hud{
+      position:fixed;
+      left:max(12px, env(safe-area-inset-left));
+      top:max(10px, env(safe-area-inset-top));
+      z-index:25;
+      font-size:14px;
+      opacity:.85;
+      user-select:none;
+      pointer-events:none;
+      text-shadow:0 1px 2px rgba(0,0,0,.6);
+      line-height:1.35;
+      white-space:pre;
+      display:none;
+    }
 
     /* ===== Mobile UI ===== */
     #mobileUI{
@@ -22,8 +77,8 @@
     }
     .joyWrap{
       position:absolute;
-      left:14px;
-      bottom:16px;
+      left:max(14px, env(safe-area-inset-left));
+      bottom:max(16px, env(safe-area-inset-bottom));
       width:150px;
       height:150px;
       pointer-events:auto;
@@ -50,8 +105,8 @@
     }
     .btnBoost{
       position:absolute;
-      right:16px;
-      bottom:26px;
+      right:max(16px, env(safe-area-inset-right));
+      bottom:max(26px, env(safe-area-inset-bottom));
       width:92px;
       height:92px;
       border-radius:999px;
@@ -69,12 +124,11 @@
     }
     .btnBoost:active{ transform: scale(0.98); }
 
-    /* Small phones */
     @media (max-width: 480px){
-      .joyWrap{ width:130px; height:130px; left:12px; bottom:14px; }
+      .joyWrap{ width:130px; height:130px; }
       .joyKnob{ width:62px; height:62px; margin-left:-31px; margin-top:-31px; }
-      .btnBoost{ width:84px; height:84px; right:14px; bottom:22px; }
-      .hud{ font-size:12px; left:10px; top:8px; }
+      .btnBoost{ width:84px; height:84px; }
+      .hud{ font-size:12px; }
     }
   </style>
 </head>
@@ -84,10 +138,9 @@
     <button id="playBtn">Играть</button>
   </div>
 
-  <div id="hud" class="hud" style="display:none"></div>
+  <div id="hud" class="hud"></div>
   <canvas id="game" tabindex="0"></canvas>
 
-  <!-- Mobile Controls -->
   <div id="mobileUI">
     <div class="joyWrap" id="joyWrap">
       <div class="joyBase"></div>
@@ -133,42 +186,6 @@ const joyWrap  = document.getElementById("joyWrap");
 const joyKnob  = document.getElementById("joyKnob");
 const boostBtn = document.getElementById("boostBtn");
 
-/* =========================
-   Mobile detection + scaling
-========================= */
-function isTouchDevice(){
-  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-}
-function isSmallScreen(){
-  return Math.min(window.innerWidth, window.innerHeight) <= 820;
-}
-function isMobileMode(){
-  // touch + маленький экран => включаем джойстик и уменьшаем зум змейки
-  return isTouchDevice() && isSmallScreen();
-}
-
-/* =========================
-   SCALE
-========================= */
-let SNAKE_SCALE = 1.35; // desktop default
-let GRID_STEP = Math.round(SEGMENT * 2.4);
-
-function applyScaleByDevice(){
-  if(isMobileMode()){
-    SNAKE_SCALE = 1.05;         // было слишком крупно
-    GRID_STEP = Math.round(SEGMENT * 3.1);
-  } else {
-    SNAKE_SCALE = 1.35;
-    GRID_STEP = Math.round(SEGMENT * 2.4);
-  }
-  // пересчёт размеров отрисовки
-  BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
-  HEAD_RADIUS = (BODY_WIDTH * 0.50);
-  EYE_WHITE_R = HEAD_RADIUS * 0.38;
-  EYE_PUPIL_R = EYE_WHITE_R * 0.45;
-  PUPIL_SHIFT = EYE_WHITE_R * 0.35;
-}
-
 function wsUrl(path){
   const proto = (location.protocol === "https:") ? "wss" : "ws";
   return `${proto}://${location.host}${path}`;
@@ -176,6 +193,94 @@ function wsUrl(path){
 
 function clamp01(v){ return Math.max(-1, Math.min(1, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
+
+/* =========================
+   Mobile detection + scaling
+========================= */
+function isTouchDevice(){
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+}
+function isSmallScreen(){
+  return Math.min(window.innerWidth, window.innerHeight) <= 900;
+}
+function isMobileMode(){
+  return isTouchDevice() && isSmallScreen();
+}
+
+/* =========================
+   SCALE
+========================= */
+let SNAKE_SCALE = 1.35;
+let GRID_STEP = Math.round(SEGMENT * 2.4);
+
+/* dynamic render sizes */
+let BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
+let HEAD_RADIUS = (BODY_WIDTH * 0.50);
+let EYE_WHITE_R = HEAD_RADIUS * 0.38;
+let EYE_PUPIL_R = EYE_WHITE_R * 0.45;
+let PUPIL_SHIFT = EYE_WHITE_R * 0.35;
+
+function applyScaleByDevice(){
+  if(isMobileMode()){
+    SNAKE_SCALE = 1.05;
+    GRID_STEP = Math.round(SEGMENT * 3.1);
+  } else {
+    SNAKE_SCALE = 1.35;
+    GRID_STEP = Math.round(SEGMENT * 2.4);
+  }
+  BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
+  HEAD_RADIUS = (BODY_WIDTH * 0.50);
+  EYE_WHITE_R = HEAD_RADIUS * 0.38;
+  EYE_PUPIL_R = EYE_WHITE_R * 0.45;
+  PUPIL_SHIFT = EYE_WHITE_R * 0.35;
+}
+
+/* =========================
+   FULLSCREEN CANVAS RESIZE (mobile-safe)
+========================= */
+function resizeCanvas(){
+  const vv = window.visualViewport;
+  const w = Math.max(1, Math.floor(vv ? vv.width : window.innerWidth));
+  const h = Math.max(1, Math.floor(vv ? vv.height : window.innerHeight));
+
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  camHX = null; camHY = null;
+}
+
+function refreshLayout(){
+  applyScaleByDevice();
+  resizeCanvas();
+  if(canvas.style.display !== "none"){
+    mobileUI.style.display = isMobileMode() ? "block" : "none";
+  }
+}
+
+function refreshLayoutSoon(){
+  refreshLayout();
+  setTimeout(refreshLayout, 50);
+  setTimeout(refreshLayout, 250);
+}
+
+window.addEventListener("resize", refreshLayoutSoon);
+window.addEventListener("orientationchange", refreshLayoutSoon);
+window.visualViewport?.addEventListener("resize", refreshLayoutSoon);
+window.visualViewport?.addEventListener("scroll", refreshLayoutSoon);
+
+/* prevent double-tap zoom messing viewport */
+let _lastTouchEnd = 0;
+document.addEventListener("touchend", (e)=>{
+  const now = Date.now();
+  if(now - _lastTouchEnd <= 300) e.preventDefault();
+  _lastTouchEnd = now;
+}, {passive:false});
 
 /* =========================
    FPS METER
@@ -438,9 +543,7 @@ function setDirection(newDir){
   const dy = ny - wantDirUnit.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
-  if(changed && (now - lastTurnTs) < TURN_MIN_MS){
-    return;
-  }
+  if(changed && (now - lastTurnTs) < TURN_MIN_MS) return;
   if(changed) lastTurnTs = now;
 
   wantDirUnit = {x:nx, y:ny};
@@ -502,20 +605,13 @@ function updateCamera(renderMeSnake){
   if(camHX === null){ camHX = h.x; camHY = h.y; }
   camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
   camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
-  cameraX = camHX - canvas.width/2;
-  cameraY = camHY - canvas.height/2;
+  cameraX = camHX - (canvas.clientWidth || innerWidth)/2;
+  cameraY = camHY - (canvas.clientHeight || innerHeight)/2;
 }
 
 /* =========================
-   RENDER HELPERS (dynamic vars)
+   RENDER HELPERS
 ========================= */
-let BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
-let HEAD_RADIUS = (BODY_WIDTH * 0.50);
-
-let EYE_WHITE_R = HEAD_RADIUS * 0.38;
-let EYE_PUPIL_R = EYE_WHITE_R * 0.45;
-let PUPIL_SHIFT = EYE_WHITE_R * 0.35;
-
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
 
@@ -661,7 +757,7 @@ function applyKeyboardVector(forceSend=false){
 ========================= */
 let joyActive = false;
 let joyCenter = {x:0,y:0};
-const JOY_MAX = 46; // px offset limit
+const JOY_MAX = 46;
 
 function setKnob(dx, dy){
   joyKnob.style.transform = `translate(${dx}px,${dy}px)`;
@@ -669,7 +765,7 @@ function setKnob(dx, dy){
 
 function joyToDir(dx, dy){
   const len = Math.hypot(dx,dy);
-  if(len < 4) return; // deadzone
+  if(len < 4) return;
   const nx = dx / len;
   const ny = dy / len;
   setDirection({x:nx, y:ny});
@@ -691,6 +787,7 @@ function onJoyStart(e){
 
 function onJoyMove(e){
   if(!joyActive) return;
+
   const dx0 = e.clientX - joyCenter.x;
   const dy0 = e.clientY - joyCenter.y;
 
@@ -725,16 +822,15 @@ function onBoostUp(e){
 }
 
 function bindMobileControls(){
-  // pointer events работают и для touch
-  joyWrap.addEventListener("pointerdown", onJoyStart);
-  joyWrap.addEventListener("pointermove", onJoyMove);
-  joyWrap.addEventListener("pointerup", onJoyEnd);
-  joyWrap.addEventListener("pointercancel", onJoyEnd);
+  joyWrap.addEventListener("pointerdown", onJoyStart, {passive:false});
+  joyWrap.addEventListener("pointermove", onJoyMove, {passive:false});
+  joyWrap.addEventListener("pointerup", onJoyEnd, {passive:false});
+  joyWrap.addEventListener("pointercancel", onJoyEnd, {passive:false});
 
-  boostBtn.addEventListener("pointerdown", onBoostDown);
-  boostBtn.addEventListener("pointerup", onBoostUp);
-  boostBtn.addEventListener("pointercancel", onBoostUp);
-  boostBtn.addEventListener("pointerleave", onBoostUp);
+  boostBtn.addEventListener("pointerdown", onBoostDown, {passive:false});
+  boostBtn.addEventListener("pointerup", onBoostUp, {passive:false});
+  boostBtn.addEventListener("pointercancel", onBoostUp, {passive:false});
+  boostBtn.addEventListener("pointerleave", onBoostUp, {passive:false});
 }
 
 /* =========================
@@ -746,7 +842,6 @@ function draw(ts){
 
   updateRafHz(ts);
 
-  // desktop keyboard autopush
   if(!isDying && !dead){
     if(!useMouse && !isMobileMode()) applyKeyboardVector(true);
   }
@@ -776,11 +871,14 @@ function draw(ts){
   updateFpsOnRenderedFrame(timeMs);
   cleanupSnapshots();
 
-  const gradient = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  const w = canvas.clientWidth || innerWidth;
+  const h = canvas.clientHeight || innerHeight;
+
+  const gradient = ctx.createLinearGradient(0,0,w,h);
   gradient.addColorStop(0,"#1a1a1a");
   gradient.addColorStop(1,"#111");
   ctx.fillStyle=gradient;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0,0,w,h);
 
   const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
   const interpOthers = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
@@ -829,9 +927,9 @@ function draw(ts){
     const falloffLen = 10;
     for(let i=0;i<n;i++){
       const t = i / falloffLen;
-      const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
+      const wgt = (t >= 1) ? 0 : (1 - t) * (1 - t);
       const p = meBaseSnake[i];
-      predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
+      predSnake[i] = { x: p.x + offX * wgt, y: p.y + offY * wgt };
     }
 
     const alphaMe = 1 - Math.exp(-dtFrame / 32);
@@ -873,12 +971,13 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
   const gy0 = -((cameraY % GRID_STEP + GRID_STEP) % GRID_STEP);
 
   ctx.beginPath();
-  for(let x=gx0; x<canvas.width; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); }
-  for(let y=gy0; y<canvas.height; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); }
+  for(let x=gx0; x<w; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,h); }
+  for(let y=gy0; y<h; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(w,y); }
   ctx.stroke();
 
   let corpseGlowBudget = lowDetail ? 0 : 120;
   const foodStep = lowDetail ? 2 : 1;
+
   for(let i=0;i<foods.length;i+=foodStep){
     const f = foods[i];
     const mult = (typeof f.size === "number") ? f.size : 1;
@@ -955,7 +1054,7 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
     } else if(deathPhase === "fade"){
       deathFade = Math.min(1, deathTimer / DEATH_FADE_MS);
       ctx.fillStyle = `rgba(0,0,0,${deathFade})`;
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillRect(0,0,w,h);
 
       if(deathFade >= 1){
         showMenuAfterDeath();
@@ -1012,9 +1111,6 @@ function startGame(){
   for(const id in renderCache) delete renderCache[id];
   foodBirth.clear();
 
-  // device-based scale + UI
-  applyScaleByDevice();
-
   menu.style.display="none";
   canvas.style.display="block";
   hud.style.display="block";
@@ -1026,9 +1122,7 @@ function startGame(){
     mobileUI.style.display="none";
   }
 
-  canvas.width=innerWidth;
-  canvas.height=innerHeight;
-  canvas.focus();
+  refreshLayoutSoon();
 
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
@@ -1102,7 +1196,7 @@ function startGame(){
 }
 
 /* =========================
-   INPUT (desktop mouse)
+   INPUT (desktop mouse/keys)
 ========================= */
 canvas.addEventListener("mousemove", e=>{
   if(isDying) return;
@@ -1161,25 +1255,20 @@ document.addEventListener("keyup", e=>{
   }
 });
 
-/* stop boost when app loses focus */
 window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
 /* bind mobile controls once */
 bindMobileControls();
 
-playBtn.onclick=startGame;
+/* START button: pointerup works best on mobile */
+playBtn.addEventListener("pointerup", (e)=>{
+  e.preventDefault();
+  startGame();
+}, {passive:false});
 
-window.addEventListener("resize",()=>{
-  canvas.width=innerWidth;
-  canvas.height=innerHeight;
-  applyScaleByDevice();
-  if(canvas.style.display !== "none"){
-    mobileUI.style.display = isMobileMode() ? "block" : "none";
-  }
-});
-
-applyScaleByDevice();
+/* initial layout + render */
+refreshLayoutSoon();
 requestAnimationFrame(draw);
 </script>
 </body>
