@@ -742,7 +742,7 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
 
     ctx.fillStyle = f.color || (isCorpse ? "white" : "lime");
     ctx.beginPath();
-    ctx.arc(x, y, isCorpse ? baseR*1.10 : baseR, 0, Math.PI*2);
+    ctx.arc(x, y, baseR, 0, Math.PI*2);
     ctx.fill();
     ctx.restore();
   }

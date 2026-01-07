@@ -37,7 +37,7 @@ PATH_MAX_STEP = SEG_DIST * 1.4
 
 # corpse food
 CORPSE_FOOD_SIZE = 1.7
-CORPSE_GROW_MULT = 2.0
+CORPSE_GROW_MULT = 4.0
 CORPSE_STEP = 3
 CORPSE_JITTER = SEGMENT * 0.14
 CORPSE_MAX_PER_DEATH = 130
@@ -197,12 +197,8 @@ def food_growth(food: dict) -> int:
         return DROP_GROW
 
     if kind == "corpse":
-        try:
-            size = float(food.get("size", CORPSE_FOOD_SIZE))
-        except Exception:
-            size = CORPSE_FOOD_SIZE
-        size = max(0.5, min(size, 6.0))
-        return max(1, int(round(GROW_AMOUNT * size * CORPSE_GROW_MULT)))
+        # фиксированный большой прирост, не зависит от size
+        return max(1, int(round(GROW_AMOUNT * CORPSE_GROW_MULT)))
 
     try:
         size = float(food.get("size", 1.0))
@@ -210,6 +206,7 @@ def food_growth(food: dict) -> int:
         size = 1.0
     size = max(0.25, min(size, 5.0))
     return max(1, int(round(GROW_AMOUNT * size)))
+
 
 
 def can_eat(head_x: float, head_y: float, food: dict) -> bool:
