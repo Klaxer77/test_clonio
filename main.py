@@ -211,15 +211,14 @@ def can_eat(head_x: float, head_y: float, food: dict) -> bool:
 
 
 def snake_build_every(length: int) -> int:
-    if length < 80:
+    if length < 120:
         return 2
-    if length < 160:
+    if length < 240:
         return 3
-    if length < 260:
+    if length < 360:
         return 4
-    if length < 420:
-        return 5
-    return 6
+    return 5
+
 
 
 def collect_food_near(room_id: str, x: float, y: float) -> List[dict]:

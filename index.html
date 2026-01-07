@@ -119,6 +119,10 @@ function startRttPing(){
    ADAPTIVE FPS CAP
 ========================= */
 const TARGET_CAP = 75;
+const SERVER_TICK_MS = 25;
+const PLAYERS_SEND_EVERY = 2;
+const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY; // 50
+const MIN_INTERP_MS = Math.max(80, Math.ceil(SNAP_INTERVAL_MS * 1.8)); // 90
 
 const rafMeter = {
   lastTs: null,
@@ -569,8 +573,8 @@ function draw(ts){
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   // Адаптивная задержка интерполяции по RTT
-  const baseDelay = Math.min(80, Math.max(25, rtt * 0.35));
-  const interpDelay = isDying ? 40 : baseDelay;
+  const baseDelay = Math.min(120, Math.max(25, rtt * 0.35));
+  const interpDelay = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
   const renderTime = timeMs - interpDelay;
 
   const renderPlayers = {};
