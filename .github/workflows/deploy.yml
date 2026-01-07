@@ -1,0 +1,25 @@
+name: Deploy PROD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy_prod:
+    runs-on: self-hosted
+    env:
+      COMPOSE_FILE: docker-compose.prod.yml
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build containers
+        run: docker compose -f "$COMPOSE_FILE" build --pull
+
+      - name: Stop old containers
+        run: docker compose -f "$COMPOSE_FILE" down --remove-orphans
+
+      - name: Start containers
+        run: docker compose -f "$COMPOSE_FILE" up -d

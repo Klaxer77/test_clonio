@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Snake Smooth Multiplayer</title>
+  <style>
+    html,body{
+      margin:0;
+      padding:0;
+      overflow:hidden;
+      font-family:Arial,sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
+      color:white;
+    }
+    canvas{display:block;outline:none;}
+    #menu{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      background: rgba(0,0,0,0.82);
+      gap:14px;
+      text-align:center;
+      padding:24px;
+      box-sizing:border-box;
+    }
+    button{
+      font-size:24px;
+      padding:15px 40px;
+      cursor:pointer;
+      border:none;
+      background:lime;
+      color:black;
+      border-radius:10px;
+    }
+    button:hover{background:#7CFF7C;}
+    .hud{
+      position:fixed;
+      left:12px;
+      top:10px;
+      z-index:5;
+      font-size:14px;
+      opacity:.85;
+      user-select:none;
+      pointer-events:none;
+      text-shadow:0 1px 2px rgba(0,0,0,.6);
+      line-height:1.35;
+      white-space:pre;
+    }
+  </style>
+</head>
+<body>
+  <div id="menu">
+    <h1>🐍 Snake</h1>
+    <button id="playBtn">Играть</button>
+  </div>
+
+  <div id="hud" class="hud" style="display:none"></div>
+  <canvas id="game" tabindex="0"></canvas>
+
+<script>
+const WORLD_W = 10000, WORLD_H = 10000;
+const SEGMENT = 30;
+const ROOM_ID = "room1";
+
+const CLIENT_SPEED = 4;
+
+let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
+let dir = {x:1, y:0}, dead=false;
+let useMouse = false;
+let lastSent = 0;
+
+let serverBoosting = false;
+const keysDown = new Set();
+
+const menu=document.getElementById("menu"),
+      playBtn=document.getElementById("playBtn"),
+      canvas=document.getElementById("game"),
+      hud=document.getElementById("hud"),
+      ctx=canvas.getContext("2d");
+
+function wsUrl(path){
+  const proto = (location.protocol === "https:") ? "wss" : "ws";
+  return `${proto}://${location.host}${path}`;
+}
+
+function clamp01(v){ return Math.max(-1, Math.min(1, v)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+/* =========================
+   SCALE
+   ========================= */
+const SNAKE_SCALE = 1.35;
+const GRID_STEP = Math.round(SEGMENT * 1.6);
+
+/* =========================
+   DEATH FLOW (wait for last state -> freeze -> fade -> menu)
+   ========================= */
+let isDying = false;
+let deathPhase = "none"; // "none" | "freeze" | "fade"
+let deathTimer = 0;
+let deathFade = 0;       // 0..1
+
+const DEATH_FREEZE_MS = 900;
+const DEATH_FADE_MS   = 650;
+
+let gotPostDeathState = false;
+const POST_DEATH_STATE_TIMEOUT_MS = 600;
+let postDeathWaitMs = 0;
+
+function resetDeathFlow(){
+  isDying = false;
+  deathPhase = "none";
+  deathTimer = 0;
+  deathFade = 0;
+  gotPostDeathState = false;
+  postDeathWaitMs = 0;
+  draw._lastTs = null;
+}
+
+function showMenuAfterDeath(){
+  canvas.style.display="none";
+  hud.style.display="none";
+  menu.style.display="flex";
+}
+
+/* =========================
+   FOOD SPAWN ANIM (corpse)
+   ========================= */
+const foodBirth = new Map(); // key -> timeMs
+const FOOD_POP_MS = 380;
+
+function foodKey(f){
+  const x = (f && typeof f.x === "number") ? f.x : 0;
+  const y = (f && typeof f.y === "number") ? f.y : 0;
+  const k = f?.kind || "";
+  const c = f?.color || "";
+  const s = (typeof f?.size === "number") ? f.size : 1;
+  return `${x}|${y}|${k}|${c}|${s}`;
+}
+
+function markFoodBirths(newFoods, timeMs){
+  for(const f of (newFoods || [])){
+    if(f?.kind !== "corpse") continue;
+    const key = foodKey(f);
+    if(!foodBirth.has(key)) foodBirth.set(key, timeMs);
+  }
+
+  const alive = new Set((newFoods || []).filter(f=>f?.kind==="corpse").map(foodKey));
+  for(const key of foodBirth.keys()){
+    if(!alive.has(key)) foodBirth.delete(key);
+  }
+}
+
+function easeOutCubic(t){
+  t = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/* =========================
+   УПРАВЛЕНИЕ
+   ========================= */
+function setDirection(newDir, source="mouse"){
+  const len = Math.hypot(newDir.x,newDir.y);
+  if(len===0) return;
+
+  const nx = newDir.x/len;
+  const ny = newDir.y/len;
+
+  if(source === "mouse"){
+    const ol = Math.hypot(dir.x,dir.y) || 1;
+    const ox = dir.x/ol;
+    const oy = dir.y/ol;
+
+    const dot = clamp01(ox*nx + oy*ny);
+    const angle = Math.acos(dot);
+
+    const MAX_TURN_ANGLE = Math.PI/3;
+    if(angle > MAX_TURN_ANGLE) return;
+  }
+
+  dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
+  sendDirection(nx, ny);
+}
+
+function sendDirection(nx, ny){
+  if(!ws) return;
+  if(isDying || dead) return;
+
+  const now = performance.now();
+  if(now - lastSent < 25) return;
+  lastSent = now;
+  ws.send(JSON.stringify({direction: {x: nx, y: ny}}));
+}
+
+function sendBoost(state){
+  if(!ws) return;
+  if(state === serverBoosting) return;
+  serverBoosting = state;
+  ws.send(JSON.stringify({boost: state}));
+}
+
+/* =========================
+   ИНТЕРПОЛЯЦИЯ СНАПШОТОВ
+   ========================= */
+const snapshots = {}; // id -> [{t, snake, boost, color}]
+const SNAP_MAX = 10;
+const INTERP_DELAY_MS = 100;
+
+function pushSnapshot(id, pl){
+  const t = performance.now();
+  const q = snapshots[id] || (snapshots[id] = []);
+  q.push({
+    t,
+    snake: (pl.snake || []).map(p => ({x:p.x, y:p.y})),
+    boost: !!pl.boost,
+    color: pl.color || "white"
+  });
+  while(q.length > SNAP_MAX) q.shift();
+}
+
+function cleanupSnapshots(){
+  for(const id in snapshots){
+    if(!players[id]) delete snapshots[id];
+  }
+}
+
+function sampleInterpSnake(id, renderTime){
+  const q = snapshots[id];
+  if(!q || q.length === 0) return null;
+
+  if(q.length === 1) return {snake: q[0].snake, boost:q[0].boost, color:q[0].color};
+
+  let a = null, b = null;
+  for(let i=0;i<q.length-1;i++){
+    if(q[i].t <= renderTime && renderTime <= q[i+1].t){
+      a = q[i]; b = q[i+1];
+      break;
+    }
+  }
+
+  if(!a || !b){
+    if(renderTime < q[0].t) return {snake:q[0].snake, boost:q[0].boost, color:q[0].color};
+    return {snake:q[q.length-1].snake, boost:q[q.length-1].boost, color:q[q.length-1].color};
+  }
+
+  const dt = (b.t - a.t);
+  const k = dt <= 1 ? 0 : clamp01((renderTime - a.t) / dt);
+
+  const n = Math.max(a.snake.length, b.snake.length);
+  if(n === 0) return {snake:[], boost:b.boost, color:b.color};
+
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    const pa = a.snake[i] || a.snake[a.snake.length-1];
+    const pb = b.snake[i] || b.snake[b.snake.length-1];
+    out[i] = {x: lerp(pa.x, pb.x, k), y: lerp(pa.y, pb.y, k)};
+  }
+
+  return {snake: out, boost: b.boost, color: b.color};
+}
+
+/* =========================
+   КАМЕРА (плавная)
+   ========================= */
+let camHX = null, camHY = null;
+const CAM_SMOOTH = 0.18;
+
+function updateCamera(renderMeSnake){
+  if(!renderMeSnake || renderMeSnake.length === 0) return;
+  const h = renderMeSnake[0];
+
+  if(camHX === null){
+    camHX = h.x;
+    camHY = h.y;
+  }
+
+  camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
+  camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
+
+  cameraX = camHX - canvas.width/2;
+  cameraY = camHY - canvas.height/2;
+}
+
+/* =========================
+   RENDER
+   ========================= */
+const BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
+const HEAD_RADIUS = (BODY_WIDTH * 0.50);
+
+/* ---- ГЛАЗА ---- */
+const EYE_WHITE_R = HEAD_RADIUS * 0.38;
+const EYE_PUPIL_R = EYE_WHITE_R * 0.45;
+// насколько далеко зрачок может смещаться внутри белка
+const PUPIL_SHIFT = EYE_WHITE_R * 0.35;
+
+function drawSnakeEyes(s, color, timeMs){
+  if(!s || s.length < 2) return;
+
+  const h = s[0];
+  const n = s[1];
+
+  // forward = от шеи к голове
+  let fx = h.x - n.x;
+  let fy = h.y - n.y;
+  const fl = Math.hypot(fx, fy) || 1;
+  fx /= fl; fy /= fl;
+
+  // left = перпендикуляр
+  const lx = -fy;
+  const ly = fx;
+
+  const cx = h.x - cameraX + SEGMENT/2;
+  const cy = h.y - cameraY + SEGMENT/2;
+
+  // позиция глаз: чуть в стороны и чуть вперёд
+  const side = HEAD_RADIUS * 0.55;
+  const fwd  = HEAD_RADIUS * 0.20;
+
+  const ex1 = cx + lx*side + fx*fwd;
+  const ey1 = cy + ly*side + fy*fwd;
+
+  const ex2 = cx - lx*side + fx*fwd;
+  const ey2 = cy - ly*side + fy*fwd;
+
+  // куда "смотрит": по текущему dir (клиентскому)
+  let dx = dir?.x ?? fx;
+  let dy = dir?.y ?? fy;
+  const dl = Math.hypot(dx, dy) || 1;
+  dx /= dl; dy /= dl;
+
+  // проекция на forward/left чтобы зрачок ходил внутри глаз
+  const lookF = clamp01(dx*fx + dy*fy);
+  const lookL = clamp01(dx*lx + dy*ly);
+
+  const pxShiftX = fx*(lookF*PUPIL_SHIFT) + lx*(lookL*PUPIL_SHIFT);
+  const pxShiftY = fy*(lookF*PUPIL_SHIFT) + ly*(lookL*PUPIL_SHIFT);
+
+  // белки
+  ctx.save();
+  ctx.fillStyle = "white";
+  ctx.beginPath(); ctx.arc(ex1, ey1, EYE_WHITE_R, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex2, ey2, EYE_WHITE_R, 0, Math.PI*2); ctx.fill();
+
+  // зрачки
+  ctx.fillStyle = "black";
+  ctx.beginPath(); ctx.arc(ex1 + pxShiftX, ey1 + pxShiftY, EYE_PUPIL_R, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex2 + pxShiftX, ey2 + pxShiftY, EYE_PUPIL_R, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawSegmentAlongPolyline(s, segLens, aDist, bDist){
+  if(bDist <= aDist) return;
+
+  ctx.beginPath();
+  let acc = 0;
+  let started = false;
+
+  for(let i=0;i<s.length-1;i++){
+    const L = segLens[i];
+    if(L <= 1e-6){ continue; }
+
+    const segStart = acc;
+    const segEnd = acc + L;
+
+    if(segEnd < aDist){ acc = segEnd; continue; }
+    if(segStart > bDist) break;
+
+    const t0 = clamp01((aDist - segStart) / L);
+    const t1 = clamp01((bDist - segStart) / L);
+
+    const x0 = lerp(s[i].x, s[i+1].x, t0) - cameraX + SEGMENT/2;
+    const y0 = lerp(s[i].y, s[i+1].y, t0) - cameraY + SEGMENT/2;
+    const x1 = lerp(s[i].x, s[i+1].x, t1) - cameraX + SEGMENT/2;
+    const y1 = lerp(s[i].y, s[i+1].y, t1) - cameraY + SEGMENT/2;
+
+    if(!started){
+      ctx.moveTo(x0,y0);
+      started = true;
+    } else {
+      ctx.lineTo(x0,y0);
+    }
+    ctx.lineTo(x1,y1);
+
+    acc = segEnd;
+    if(segEnd >= bDist) break;
+  }
+
+  if(started) ctx.stroke();
+}
+
+function drawBoostDashes(s, strength, timeMs){
+  if(!s || s.length < 3 || strength <= 0) return;
+
+  const dashLen = SEGMENT * 1.1 * SNAKE_SCALE;
+  const gapLen  = SEGMENT * 0.9 * SNAKE_SCALE;
+  const speedPx = 0.55;
+
+  let total = 0;
+  const segLens = new Array(s.length-1);
+  for(let i=0;i<s.length-1;i++){
+    const dx = s[i+1].x - s[i].x;
+    const dy = s[i+1].y - s[i].y;
+    const L = Math.hypot(dx,dy) || 0;
+    segLens[i] = L;
+    total += L;
+  }
+  if(total < 1) return;
+
+  const period = dashLen + gapLen;
+  const offset = (timeMs * speedPx) % period;
+
+  ctx.strokeStyle = `rgba(255,255,255,${0.26*strength})`;
+  ctx.lineWidth = BODY_WIDTH * (0.32 + 0.10*strength);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for(let start = -offset; start < total; start += period){
+    const end = start + dashLen;
+    if(end <= 0) continue;
+    drawSegmentAlongPolyline(s, segLens, Math.max(0,start), Math.min(total,end));
+  }
+}
+
+function drawBoostBodyGlow(s, strength, timeMs){
+  if(!s || s.length < 2 || strength <= 0) return;
+
+  const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
+  const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  ctx.strokeStyle = `rgba(255,255,255,${0.12 + 0.12*pulse1*strength})`;
+  ctx.lineWidth = BODY_WIDTH * (2.05 + 0.40*pulse2*strength);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
+  for(let i=1;i<s.length;i++) ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255,255,255,${0.16 + 0.18*pulse2*strength})`;
+  ctx.lineWidth = BODY_WIDTH * (1.38 + 0.24*pulse1*strength);
+  ctx.beginPath();
+  ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
+  for(let i=1;i<s.length;i++) ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255,255,255,${0.04 + 0.04*pulse1*strength})`;
+  ctx.lineWidth = BODY_WIDTH * 0.28;
+  ctx.beginPath();
+  ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
+  for(let i=1;i<s.length;i++) ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawSnakeRibbon(renderSnake, color, boost, boostStrength, timeMs){
+  const s = renderSnake || [];
+  if(s.length < 2) return;
+
+  if(boost){
+    drawBoostBodyGlow(s, boostStrength, timeMs);
+    drawBoostDashes(s, boostStrength, timeMs);
+  }
+
+  ctx.strokeStyle = color || "white";
+  ctx.lineWidth = BODY_WIDTH;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
+  for(let i=1;i<s.length;i++){
+    ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+  }
+  ctx.stroke();
+
+  // голова (по толщине тела)
+  const head = s[0];
+  ctx.fillStyle = color || "white";
+  ctx.beginPath();
+  ctx.arc(
+    head.x - cameraX + SEGMENT/2,
+    head.y - cameraY + SEGMENT/2,
+    HEAD_RADIUS,
+    0, Math.PI*2
+  );
+  ctx.fill();
+
+  // глаза поверх головы
+  drawSnakeEyes(s, color, timeMs);
+}
+
+function applyKeyboardVector(){
+  if(!ws || dead) return;
+  if(useMouse) return;
+
+  let dx = 0, dy = 0;
+  if(keysDown.has("w")) dy -= 1;
+  if(keysDown.has("s")) dy += 1;
+  if(keysDown.has("a")) dx -= 1;
+  if(keysDown.has("d")) dx += 1;
+
+  if(dx === 0 && dy === 0) return;
+  setDirection({x: dx, y: dy}, "keys");
+}
+
+function draw(){
+  requestAnimationFrame(draw);
+  if(canvas.style.display==="none") return;
+
+  if(!isDying){
+    applyKeyboardVector();
+  }
+
+  cleanupSnapshots();
+
+  const timeMs = performance.now();
+
+  const gradient = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  gradient.addColorStop(0,"#1a1a1a");
+  gradient.addColorStop(1,"#111");
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  const interpDelay = isDying ? 40 : INTERP_DELAY_MS;
+  const renderTime = timeMs - interpDelay;
+
+  const renderPlayers = {};
+  for(const id in players){
+    const sp = sampleInterpSnake(id, renderTime);
+    if(sp) renderPlayers[id] = sp;
+  }
+
+  const meRender = renderPlayers[playerId]?.snake || null;
+  const boostActive = !!renderPlayers[playerId]?.boost;
+
+  hud.textContent =
+`Режим: ${useMouse ? "мышь" : "WASD"} | Игроков: ${Object.keys(players).length}
+Shift: ускорение (${boostActive ? "включено" : "выключено"}) | M: смена режима`;
+
+  updateCamera(meRender);
+
+  // сетка
+  ctx.strokeStyle="rgba(255,255,255,0.05)";
+  const gx0 = -((cameraX % GRID_STEP + GRID_STEP) % GRID_STEP);
+  const gy0 = -((cameraY % GRID_STEP + GRID_STEP) % GRID_STEP);
+
+  for(let x=gx0; x<canvas.width; x+=GRID_STEP){
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke();
+  }
+  for(let y=gy0; y<canvas.height; y+=GRID_STEP){
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke();
+  }
+
+  // еда (corpse плавно появляется)
+  foods.forEach(f=>{
+    const mult = (typeof f.size === "number") ? f.size : 1;
+    const baseR0 = (SEGMENT/4) * mult * Math.sqrt(SNAKE_SCALE);
+
+    const x = f.x - cameraX + SEGMENT/2;
+    const y = f.y - cameraY + SEGMENT/2;
+
+    const isCorpse = (f.kind === "corpse");
+
+    let alphaMul = 1.0;
+    let scaleMul = 1.0;
+
+    if(isCorpse){
+      const key = foodKey(f);
+      const born = foodBirth.get(key);
+      if(typeof born === "number"){
+        const t = (timeMs - born) / FOOD_POP_MS;
+        const k = easeOutCubic(t);
+        alphaMul = 0.10 + 0.90 * k;
+        scaleMul = 0.72 + 0.28 * k;
+      }
+    }
+
+    const baseR = baseR0 * scaleMul;
+
+    if(isCorpse){
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+
+      ctx.fillStyle = `rgba(255,255,255,${0.10 * alphaMul})`;
+      ctx.beginPath();
+      ctx.arc(x, y, baseR * 1.85, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255,255,255,${0.14 * alphaMul})`;
+      ctx.lineWidth = 2.2 * SNAKE_SCALE * scaleMul;
+      ctx.beginPath();
+      ctx.arc(x, y, baseR * 1.32, 0, Math.PI*2);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    ctx.save();
+    if(isCorpse) ctx.globalAlpha = alphaMul;
+    ctx.fillStyle = f.color || (isCorpse ? "white" : "lime");
+    ctx.beginPath();
+    ctx.arc(x, y, isCorpse ? baseR*1.10 : baseR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // змейки
+  for(const id in renderPlayers){
+    const rp = renderPlayers[id];
+    const strength = (id === playerId) ? 1.0 : 0.8;
+    drawSnakeRibbon(rp.snake, rp.color, rp.boost, strength, timeMs);
+  }
+
+  // границы
+  ctx.strokeStyle="red";
+  ctx.lineWidth=4;
+  ctx.strokeRect(-cameraX, -cameraY, WORLD_W, WORLD_H);
+
+  // death flow
+  if(isDying){
+    const dt = (draw._lastTs == null) ? 16 : (timeMs - draw._lastTs);
+    draw._lastTs = timeMs;
+
+    if(!gotPostDeathState && deathPhase === "freeze"){
+      postDeathWaitMs += dt;
+      if(postDeathWaitMs >= POST_DEATH_STATE_TIMEOUT_MS){
+        gotPostDeathState = true;
+      }
+    }
+
+    deathTimer += dt;
+
+    if(deathPhase === "freeze"){
+      if(gotPostDeathState && deathTimer >= DEATH_FREEZE_MS){
+        deathPhase = "fade";
+        deathTimer = 0;
+      }
+    } else if(deathPhase === "fade"){
+      deathFade = Math.min(1, deathTimer / DEATH_FADE_MS);
+      ctx.fillStyle = `rgba(0,0,0,${deathFade})`;
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      if(deathFade >= 1){
+        showMenuAfterDeath();
+        resetDeathFlow();
+      }
+    }
+  } else {
+    draw._lastTs = timeMs;
+  }
+}
+
+/* =========================
+   START / WS
+   ========================= */
+function startGame(){
+  resetDeathFlow();
+
+  dead = false;
+  dir = {x:1,y:0};
+  players = {};
+  foods = [];
+  keysDown.clear();
+  serverBoosting = false;
+
+  camHX = null;
+  camHY = null;
+
+  for(const id in snapshots) delete snapshots[id];
+  foodBirth.clear();
+
+  menu.style.display="none";
+  canvas.style.display="block";
+  hud.style.display="block";
+
+  canvas.width=innerWidth;
+  canvas.height=innerHeight;
+  canvas.focus();
+
+  playerId="player"+Math.floor(Math.random()*9999);
+  ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
+
+  ws.onmessage=e=>{
+    const data=JSON.parse(e.data);
+
+    if(data.type==="death"){
+      dead = true;
+      isDying = true;
+      deathPhase = "freeze";
+      deathTimer = 0;
+      postDeathWaitMs = 0;
+      gotPostDeathState = false;
+
+      sendBoost(false);
+      return;
+    }
+
+    players = data.players || {};
+    foods = data.foods || [];
+
+    markFoodBirths(foods, performance.now());
+
+    if(isDying && !gotPostDeathState){
+      gotPostDeathState = true;
+      deathTimer = 0;
+    }
+
+    for(const id in players){
+      pushSnapshot(id, players[id]);
+    }
+  };
+
+  ws.onclose=()=>{
+    if(!isDying){
+      setTimeout(()=>showMenuAfterDeath(), 150);
+    }
+  };
+}
+
+/* =========================
+   INPUT (block while dying)
+   ========================= */
+canvas.addEventListener("mousemove", e=>{
+  if(isDying) return;
+  if(!useMouse) return;
+  const me = players[playerId];
+  if(!me || dead || !me.snake || !me.snake[0]) return;
+  const head = me.snake[0];
+  const mx = e.clientX + cameraX - head.x;
+  const my = e.clientY + cameraY + 0 - head.y;
+  setDirection({x: mx, y: my}, "mouse");
+});
+
+document.addEventListener("keydown", e=>{
+  if(isDying) return;
+  if(e.key === "m" || e.key === "M"){
+    useMouse = !useMouse;
+    keysDown.clear();
+  }
+});
+
+document.addEventListener("keydown", e=>{
+  if(isDying) return;
+  if(dead) return;
+  const k = e.key.toLowerCase();
+
+  if(k === "shift"){
+    sendBoost(true);
+    e.preventDefault?.();
+    return;
+  }
+
+  if(k === "w" || k === "a" || k === "s" || k === "d"){
+    keysDown.add(k);
+    e.preventDefault?.();
+  }
+});
+
+document.addEventListener("keyup", e=>{
+  const k = e.key.toLowerCase();
+
+  if(k === "shift"){
+    sendBoost(false);
+    e.preventDefault?.();
+    return;
+  }
+
+  if(k === "w" || k === "a" || k === "s" || k === "d"){
+    keysDown.delete(k);
+    e.preventDefault?.();
+  }
+});
+
+window.addEventListener("blur", () => sendBoost(false));
+document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
+
+playBtn.onclick=startGame;
+
+window.addEventListener("resize",()=>{
+  canvas.width=innerWidth;
+  canvas.height=innerHeight;
+});
+
+draw();
+</script>
+</body>
+</html>
