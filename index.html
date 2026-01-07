@@ -1,10 +1,8 @@
 <!-- =========================
-index.html (FULL) — OPTIMIZED
-- Adaptive cap (<=75)
-- DT-aware smooth
-- Corpse glow budget (no spike)
-- markFoodBirths without heavy full-scan cleanup
-- WASD + ФЦЫВ
+index.html (FULL) — INPUT FEELS FASTER ON REMOTE
+Что изменено:
+1) ping/pong RTT + адаптивная задержка интерполяции (не фикс 100ms)
+2) sendDirection: чаще (до ~60Hz) и только при заметном изменении
 ========================= -->
 <!DOCTYPE html>
 <html lang="ru">
@@ -58,7 +56,6 @@ const CLIENT_SPEED = 4;
 let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
 let useMouse = false;
-let lastSent = 0;
 
 let serverBoosting = false;
 const keysDown = new Set();
@@ -84,7 +81,7 @@ const SNAKE_SCALE = 1.35;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
 
 /* =========================
-   FPS METER (rendered frames)
+   FPS METER
 ========================= */
 let fps = 60;
 let lastFpsTs = performance.now();
@@ -102,6 +99,20 @@ function updateFpsOnRenderedFrame(timeMs){
     lowDetail = fps < 45;
     GRID_STEP = Math.round(SEGMENT * (lowDetail ? 3.2 : 2.4));
   }
+}
+
+/* =========================
+   RTT ping/pong
+========================= */
+let rtt = 60;
+let rttTimer = null;
+
+function startRttPing(){
+  if(rttTimer) clearInterval(rttTimer);
+  rttTimer = setInterval(()=>{
+    if(!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({type:"ping", t: performance.now()}));
+  }, 800);
 }
 
 /* =========================
@@ -233,7 +244,6 @@ function markFoodBirths(newFoods, timeMs){
     if(!foodBirth.has(key)) foodBirth.set(key, timeMs);
   }
 
-  // чистка редко и дёшево
   if(!markFoodBirths._nextClean) markFoodBirths._nextClean = timeMs + 2000;
   if(timeMs < markFoodBirths._nextClean) return;
   markFoodBirths._nextClean = timeMs + 2000;
@@ -250,8 +260,11 @@ function easeOutCubic(t){
 }
 
 /* =========================
-   CONTROL
+   CONTROL (faster sendDirection)
 ========================= */
+let lastSent = 0;
+let lastDirSent = {x:1, y:0};
+
 function setDirection(newDir, source="mouse"){
   const len = Math.hypot(newDir.x,newDir.y);
   if(len===0) return;
@@ -280,8 +293,16 @@ function sendDirection(nx, ny){
   if(isDying || dead) return;
 
   const now = performance.now();
-  if(now - lastSent < 25) return;
+
+  const dx = nx - lastDirSent.x;
+  const dy = ny - lastDirSent.y;
+  const changed = (dx*dx + dy*dy) > 0.0009; // порог
+
+  if(!changed && (now - lastSent) < 80) return; // иногда дублируем
+  if((now - lastSent) < 16) return;             // максимум ~60Hz
+
   lastSent = now;
+  lastDirSent = {x:nx, y:ny};
   ws.send(JSON.stringify({direction: {x: nx, y: ny}}));
 }
 
@@ -297,7 +318,6 @@ function sendBoost(state){
 ========================= */
 const snapshots = {};
 const SNAP_MAX = 10;
-const INTERP_DELAY_MS = 100;
 
 function pushSnapshot(id, pl){
   const t = performance.now();
@@ -548,7 +568,9 @@ function draw(ts){
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  const interpDelay = isDying ? 40 : INTERP_DELAY_MS;
+  // Адаптивная задержка интерполяции по RTT
+  const baseDelay = Math.min(80, Math.max(25, rtt * 0.35));
+  const interpDelay = isDying ? 40 : baseDelay;
   const renderTime = timeMs - interpDelay;
 
   const renderPlayers = {};
@@ -569,7 +591,7 @@ function draw(ts){
 
   hud.textContent =
 `Режим: ${useMouse ? "мышь" : "WASD/ФЦЫВ"} | Игроков: ${Object.keys(players).length} | FPS: ${fps}
-Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | Shift: ускорение (${boostActive ? "вкл" : "выкл"}) | M: режим`;
+Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.round(rtt)}ms | Shift: ускорение (${boostActive ? "вкл" : "выкл"}) | M: режим`;
 
   updateCamera(meRender);
 
@@ -586,7 +608,6 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | Shift: ускор
   }
   ctx.stroke();
 
-  // еда (локальная, уже небольшая)
   let corpseGlowBudget = lowDetail ? 0 : 120;
   const foodStep = lowDetail ? 2 : 1;
   for(let i=0;i<foods.length;i+=foodStep){
@@ -690,6 +711,8 @@ function startGame(){
   foods = [];
   keysDown.clear();
   serverBoosting = false;
+  lastSent = 0;
+  lastDirSent = {x:1,y:0};
 
   camHX = null; camHY = null;
   for(const id in snapshots) delete snapshots[id];
@@ -707,8 +730,19 @@ function startGame(){
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
 
+  ws.onopen = () => {
+    startRttPing();
+  };
+
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
+
+    if (data.type === "pong") {
+      const now = performance.now();
+      const sample = Math.max(0, now - (data.t || now));
+      rtt = rtt*0.8 + sample*0.2;
+      return;
+    }
 
     if (data.type === "death") {
       dead = true;
@@ -723,7 +757,6 @@ function startGame(){
 
     if (data.players) players = data.players;
 
-    // foods теперь локальные (маленькие) — можно просто присваивать
     if (Array.isArray(data.foods)) {
       foods = data.foods;
       markFoodBirths(foods, performance.now());
@@ -738,6 +771,7 @@ function startGame(){
   };
 
   ws.onclose=()=>{
+    if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(!isDying){
       setTimeout(()=>showMenuAfterDeath(), 150);
     }

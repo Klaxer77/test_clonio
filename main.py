@@ -1,9 +1,11 @@
 # =========================
-# main.py (FULL) — OPTIMIZED (NO SPIKES ON CORPSE)
-# Главное:
-# - foods отправляем только рядом с игроком (пер-сокет), а не всем весь список
-# - death snapshot умершему: тоже только локальная еда
-# - меньше corpse-еды за смерть (CORPSE_STEP выше)
+# main.py (FULL) — OPTIMIZED INPUT + LOWER NET QUEUE
+# Что изменено:
+# 1) ping/pong для измерения RTT (клиент сам подстроит задержку интерполяции)
+# 2) dt-движение (speed *= dt/TICK) с clamp, чтобы не было "неровности" из-за тиков на сервере
+# 3) players шлём не каждый тик, а раз в PLAYERS_SEND_EVERY (сильно разгружает сеть и уменьшает input-lag)
+# 4) foods как и было — локально и раз в FOODS_SEND_EVERY
+# 5) исправлено: никаких html-комментов в python
 # =========================
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -43,16 +45,12 @@ MAX_GROW_PER_TICK = 1
 
 PATH_MAX_STEP = SEG_DIST * 1.4
 
-# corpse food (меньше объектов => меньше спайк)
 # corpse food (больше еды, но без спайков)
-CORPSE_FOOD_SIZE = 1.7       # чуть меньше размер, чтобы можно было больше штук без "перекорма"
+CORPSE_FOOD_SIZE = 1.7
 CORPSE_GROW_MULT = 2.0
-
-CORPSE_STEP = 3              # больше точек => больше corpse-еды (компромисс)
+CORPSE_STEP = 3
 CORPSE_JITTER = SEGMENT * 0.14
-
-CORPSE_MAX_PER_DEATH = 220   # ЖЁСТКИЙ ЛИМИТ: максимум штук corpse-еды за одну смерть
-
+CORPSE_MAX_PER_DEATH = 220
 
 HIT_RADIUS = SEGMENT * 1.10
 IGNORE_OTHER_HEAD_LEN = SEG_DIST * 1.5
@@ -71,10 +69,11 @@ SEND_TIMEOUT_SEC = 0.03              # таймаут на send_json
 
 # --- Stability knobs ---
 MAX_LEN = 450
-FOODS_SEND_EVERY = 4  # раз в N тиков
+FOODS_SEND_EVERY = 4                 # раз в N тиков
+PLAYERS_SEND_EVERY = 2               # раз в N тиков (важно для снижения сетевой очереди)
 
 # --- foods around player (server sends local only) ---
-FOOD_VIEW_CELLS = 6   # радиус в GRID_CELL (6 => 13x13 клеток)
+FOOD_VIEW_CELLS = 6                  # радиус в GRID_CELL (6 => 13x13 клеток)
 
 rooms: Dict[str, Dict[str, dict]] = {}
 connections: Dict[str, Dict[str, WebSocket]] = {}
@@ -397,25 +396,19 @@ def spawn_corpse_food(room_id: str, p: dict):
     if free <= 0:
         return
 
-    # Сколько максимум можно заспавнить сейчас (кап на смерть + общий кап)
     spawn_cap = min(int(CORPSE_MAX_PER_DEATH), int(free))
     if spawn_cap <= 0:
         return
 
-    # Берём точки по шагу, но НЕ больше spawn_cap
     step = max(1, int(CORPSE_STEP))
     points = body[::step]
 
-    # если точек меньше чем хотим — можно слегка "уплотнить" (берём чаще),
-    # но без фанатизма: максимум до step=2
     if len(points) < spawn_cap and step > 2:
         points = body[::2]
 
-    # если точек всё равно больше лимита — равномерно прорежаем до spawn_cap
     if len(points) > spawn_cap:
         stride = max(1, int(math.floor(len(points) / spawn_cap)))
         points = points[::stride]
-        # вдруг чуть перелетели — подрежем
         if len(points) > spawn_cap:
             points = points[:spawn_cap]
 
@@ -443,7 +436,6 @@ def spawn_corpse_food(room_id: str, p: dict):
         })
 
     food_dirty[room_id] = True
-
 
 
 # ---------------------------
@@ -510,6 +502,11 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
             if not p:
                 continue
 
+            # --- ping/pong ---
+            if data.get("type") == "ping":
+                await safe_send(ws, {"type": "pong", "t": data.get("t", 0)})
+                continue
+
             if "direction" in data:
                 new_u = normalize_dir_unit(data["direction"])
                 old_u = p["dir"]
@@ -566,6 +563,7 @@ def iter_neighbor_food_indices(room_id: str, cx: int, cy: int):
 async def game_loop():
     logging.info("Game loop started")
     next_t = time.perf_counter()
+    last_pc = time.perf_counter()
 
     while True:
         now_pc = time.perf_counter()
@@ -574,6 +572,12 @@ async def game_loop():
             continue
         next_t = now_pc + TICK
 
+        # dt для стабильности движения при микронагрузке сервера
+        dt = now_pc - last_pc
+        last_pc = now_pc
+        dt = max(0.010, min(dt, 0.050))  # clamp
+        dt_mul = dt / TICK
+
         for room_id in list(rooms.keys()):
             players = rooms.get(room_id, {})
             if not players:
@@ -581,7 +585,6 @@ async def game_loop():
 
             room_tick[room_id] = (room_tick[room_id] + 1) % 1_000_000
 
-            # rebuild grid if previous tick dirtied
             if food_dirty.get(room_id, False):
                 rebuild_food_grid(room_id)
                 food_dirty[room_id] = False
@@ -596,9 +599,9 @@ async def game_loop():
                 u = p["dir"]
                 p["tick_i"] = (p.get("tick_i", 0) + 1) % 10_000
 
-                speed = SPEED
+                speed = SPEED * dt_mul
                 if p.get("boost", False) and p["length"] > BOOST_MIN_LEN:
-                    speed = SPEED * BOOST_MULT
+                    speed = SPEED * BOOST_MULT * dt_mul
                 else:
                     p["boost"] = False
 
@@ -717,7 +720,6 @@ async def game_loop():
                         to_kill.append(pid)
                         break
 
-            # если в этом тике была еда/смерть — сразу перестроим food_grid
             if food_dirty.get(room_id, False):
                 rebuild_food_grid(room_id)
                 food_dirty[room_id] = False
@@ -730,12 +732,11 @@ async def game_loop():
                     dead_head = dead_p.get("head")
                     spawn_corpse_food(room_id, dead_p)
 
-                # после спавна corpse — grid меняется
                 if food_dirty.get(room_id, False):
                     rebuild_food_grid(room_id)
                     food_dirty[room_id] = False
 
-                payload_players = {
+                payload_players_dead = {
                     k: {"snake": v["snake"], "color": v["color"], "boost": bool(v.get("boost", False))}
                     for k, v in players.items()
                     if k != pid
@@ -743,11 +744,11 @@ async def game_loop():
 
                 if dead_head:
                     last_payload = {
-                        "players": payload_players,
+                        "players": payload_players_dead,
                         "foods": collect_food_near(room_id, float(dead_head["x"]), float(dead_head["y"])),
                     }
                 else:
-                    last_payload = {"players": payload_players, "foods": []}
+                    last_payload = {"players": payload_players_dead, "foods": []}
 
                 ws_dead = connections.get(room_id, {}).get(pid)
                 if ws_dead:
@@ -763,18 +764,24 @@ async def game_loop():
                 connections.get(room_id, {}).pop(pid, None)
                 players.pop(pid, None)
 
-            # 4) broadcast: players всем, foods — только локально для каждого сокета
-            payload_players = {
-                pid: {"snake": p["snake"], "color": p["color"], "boost": bool(p.get("boost", False))}
-                for pid, p in players.items()
-            }
-
+            # 4) broadcast: players реже, foods локально и реже
             send_foods = (room_tick[room_id] % FOODS_SEND_EVERY == 0)
+            send_players = (room_tick[room_id] % PLAYERS_SEND_EVERY == 0)
+
+            payload_players = None
+            if send_players:
+                payload_players = {
+                    pid: {"snake": p["snake"], "color": p["color"], "boost": bool(p.get("boost", False))}
+                    for pid, p in players.items()
+                }
 
             tasks = []
             conns = connections.get(room_id, {})
             for pid, sock in list(conns.items()):
-                payload = {"players": payload_players}
+                payload = {}
+
+                if send_players:
+                    payload["players"] = payload_players
 
                 if send_foods:
                     p = players.get(pid)
@@ -785,7 +792,8 @@ async def game_loop():
                     else:
                         payload["foods"] = []
 
-                tasks.append(safe_send(sock, payload))
+                if payload:
+                    tasks.append(safe_send(sock, payload))
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
