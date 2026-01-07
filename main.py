@@ -35,24 +35,17 @@ MAX_GROW_PER_TICK = 1
 
 PATH_MAX_STEP = SEG_DIST * 1.4
 
-# corpse food
-CORPSE_FOOD_SIZE = 1.7
-CORPSE_GROW_MULT = 4.0
+# corpse food (ВИЗУАЛ НЕ УВЕЛИЧИВАЕМ)
+CORPSE_FOOD_SIZE = 1.7          # было 1.7 (делаем обычный размер)
 CORPSE_STEP = 3
 CORPSE_JITTER = SEGMENT * 0.14
 CORPSE_MAX_PER_DEATH = 130
 
 # ---------- HIT / COLLISION ----------
-# Было SEGMENT*1.10, это реально жирно и даёт "умер далеко"
 HIT_RADIUS = SEGMENT * 0.95 * 1.35
 
-# игнор головы соперника: в сегментах, когда считаем по snake
 IGNORE_OTHER_HEAD_SEGS = 1
-
-# игнор хвоста соперника: чтобы хвост не был "липким"
 IGNORE_OTHER_TAIL_SEGS = 0
-
-# ближе к хвосту уменьшаем радиус
 TAIL_RADIUS_SCALE = 1.25
 
 # EAT
@@ -72,6 +65,9 @@ FOODS_SEND_EVERY = 4
 PLAYERS_SEND_EVERY = 1
 
 FOOD_VIEW_CELLS = 8
+
+# стартовая длина новой змеи (важно для "съел всё = стал как умерший")
+START_LEN = 10
 
 rooms: Dict[str, Dict[str, dict]] = {}
 connections: Dict[str, Dict[str, WebSocket]] = {}
@@ -149,21 +145,18 @@ async def base_food_worker(room_id: str):
         if base_food_debt[room_id] <= 0:
             return
 
-        # сколько базовой надо добить до нормы
         base_now = count_kind(room_id, "base")
         need = max(0, FOOD_COUNT - base_now)
         if need <= 0:
             base_food_debt[room_id] = 0
             return
 
-        # сколько реально можем добавить сейчас
         can_add = min(
             base_food_debt[room_id],
             need,
-            max(1, FOOD_COUNT // 25),  # пачка (например 20 при FOOD_COUNT=500)
+            max(1, FOOD_COUNT // 25),
         )
 
-        # если упёрлись в общий лимит — просто ждём
         if len(foods[room_id]) >= TOTAL_FOOD_CAP:
             continue
 
@@ -174,7 +167,6 @@ async def base_food_worker(room_id: str):
             base_food_debt[room_id] -= 1
 
         food_dirty[room_id] = True
-
 
 
 def normalize_dir_unit(d: dict) -> dict:
@@ -191,14 +183,18 @@ def normalize_dir_unit(d: dict) -> dict:
 
 
 def food_growth(food: dict) -> int:
+    # главное: если у corpse еды есть grow — берём ровно его (может быть 0)
+    g = food.get("grow", None)
+    if g is not None:
+        try:
+            return max(0, int(g))
+        except Exception:
+            return 0
+
     kind = food.get("kind", "base")
 
     if kind == "drop":
         return DROP_GROW
-
-    if kind == "corpse":
-        # фиксированный большой прирост, не зависит от size
-        return max(1, int(round(GROW_AMOUNT * CORPSE_GROW_MULT)))
 
     try:
         size = float(food.get("size", 1.0))
@@ -206,7 +202,6 @@ def food_growth(food: dict) -> int:
         size = 1.0
     size = max(0.25, min(size, 5.0))
     return max(1, int(round(GROW_AMOUNT * size)))
-
 
 
 def can_eat(head_x: float, head_y: float, food: dict) -> bool:
@@ -217,10 +212,6 @@ def can_eat(head_x: float, head_y: float, food: dict) -> bool:
     dx = hx - fx
     dy = hy - fy
     return (dx * dx + dy * dy) <= EAT_RADIUS2
-
-
-def snake_build_every(length: int) -> int:
-    return 1
 
 
 def collect_food_near(room_id: str, x: float, y: float) -> List[dict]:
@@ -275,7 +266,6 @@ def head_hits_other_snake(
     n = len(other_snake)
     start = max(0, int(ignore_head_segments))
     end = max(start + 1, (n - 1 - int(ignore_tail_segments)))
-
     denom = max(1, end - start)
 
     for i in range(start, end):
@@ -285,15 +275,13 @@ def head_hits_other_snake(
         ax, ay = float(a["x"]) + off, float(a["y"]) + off
         bx, by = float(b["x"]) + off, float(b["y"]) + off
 
-        prog = (i - start) / denom  # 0 у "ближе к голове", 1 у "ближе к хвосту"
+        prog = (i - start) / denom
 
-        # после 60% длины начинаем плавно усиливать радиус к хвосту
         if prog <= 0.60:
             k_tail = 1.0
         else:
-            t = (prog - 0.60) / 0.40  # 0..1
+            t = (prog - 0.60) / 0.40
             k_tail = 1.0 + (TAIL_RADIUS_SCALE - 1.0) * t
-
 
         rr2 = (float(r) * k_tail) ** 2
         if dist2_point_to_segment(px, py, ax, ay, bx, by) <= rr2:
@@ -418,9 +406,20 @@ def spawn_corpse_food(room_id: str, p: dict):
         if len(points) > spawn_cap:
             points = points[:spawn_cap]
 
+    if not points:
+        return
+
     color = p.get("color")
 
-    for seg in points:
+    # ====== КЛЮЧЕВОЕ: суммарный рост corpse-еды = (dead_len - START_LEN) ======
+    dead_len = int(p.get("length", 0))
+    need_total = max(0, dead_len - START_LEN)
+
+    m = len(points)
+    base_grow = need_total // m
+    rem = need_total - base_grow * m  # остаток раздадим первым rem кускам
+
+    for i, seg in enumerate(points):
         if len(arr) >= TOTAL_FOOD_CAP:
             break
 
@@ -433,12 +432,15 @@ def spawn_corpse_food(room_id: str, p: dict):
         x = max(0, min(x, WORLD_W - SEGMENT))
         y = max(0, min(y, WORLD_H - SEGMENT))
 
+        grow = base_grow + (1 if i < rem else 0)  # может быть 0
+
         arr.append({
             "x": x,
             "y": y,
             "color": color,
-            "size": float(CORPSE_FOOD_SIZE),
+            "size": float(CORPSE_FOOD_SIZE),  # визуально обычная
             "kind": "corpse",
+            "grow": int(grow),                # питательность (клиенту не важна)
         })
 
     food_dirty[room_id] = True
@@ -506,7 +508,7 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
         "path": path,
         "path_len": init_path_len,
         "head": {"x": float(x), "y": float(y)},
-        "length": 10,
+        "length": START_LEN,        # <= важно: синхрон со START_LEN
         "pending_grow": 0,
         "snake": [],
 
@@ -688,7 +690,7 @@ async def game_loop():
 
             rebuild_player_grid(room_id)
 
-            # 2) collisions (по SNAKE, а не по path)
+            # 2) collisions
             for pid, p in list(players.items()):
                 if pid in to_kill:
                     continue
@@ -729,7 +731,7 @@ async def game_loop():
                 rebuild_food_grid(room_id)
                 food_dirty[room_id] = False
 
-            # 3) kills (НЕ БЛОЧИМ game_loop)
+            # 3) kills (не блокируем loop)
             killed = set(to_kill)
             if killed:
                 for pid in killed:
