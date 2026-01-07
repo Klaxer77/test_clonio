@@ -13,7 +13,7 @@ SEGMENT = 30
 TICK = 0.025  # 40 Hz
 
 FOOD_COUNT = 500
-FOOD_RESPAWN = 50
+FOOD_RESPAWN = 1.5
 GROW_AMOUNT = 0.02
 
 SPEED = 7
@@ -44,16 +44,16 @@ CORPSE_MAX_PER_DEATH = 130
 
 # ---------- HIT / COLLISION ----------
 # Было SEGMENT*1.10, это реально жирно и даёт "умер далеко"
-HIT_RADIUS = SEGMENT * 0.82
+HIT_RADIUS = SEGMENT * 0.95 * 1.35
 
 # игнор головы соперника: в сегментах, когда считаем по snake
-IGNORE_OTHER_HEAD_SEGS = 2
+IGNORE_OTHER_HEAD_SEGS = 1
 
 # игнор хвоста соперника: чтобы хвост не был "липким"
-IGNORE_OTHER_TAIL_SEGS = 3
+IGNORE_OTHER_TAIL_SEGS = 0
 
 # ближе к хвосту уменьшаем радиус
-TAIL_RADIUS_SCALE = 0.60
+TAIL_RADIUS_SCALE = 1.25
 
 # EAT
 EAT_RADIUS = SEGMENT * 0.75
@@ -71,7 +71,7 @@ MAX_LEN = 450
 FOODS_SEND_EVERY = 4
 PLAYERS_SEND_EVERY = 1
 
-FOOD_VIEW_CELLS = 6
+FOOD_VIEW_CELLS = 8
 
 rooms: Dict[str, Dict[str, dict]] = {}
 connections: Dict[str, Dict[str, WebSocket]] = {}
@@ -146,17 +146,35 @@ async def base_food_worker(room_id: str):
 
         if room_id not in foods:
             return
+        if base_food_debt[room_id] <= 0:
+            return
 
-        if count_kind(room_id, "base") >= FOOD_COUNT:
+        # сколько базовой надо добить до нормы
+        base_now = count_kind(room_id, "base")
+        need = max(0, FOOD_COUNT - base_now)
+        if need <= 0:
             base_food_debt[room_id] = 0
             return
 
+        # сколько реально можем добавить сейчас
+        can_add = min(
+            base_food_debt[room_id],
+            need,
+            max(1, FOOD_COUNT // 25),  # пачка (например 20 при FOOD_COUNT=500)
+        )
+
+        # если упёрлись в общий лимит — просто ждём
         if len(foods[room_id]) >= TOTAL_FOOD_CAP:
             continue
 
-        foods[room_id].append(random_food(1.0, "base"))
+        for _ in range(can_add):
+            if len(foods[room_id]) >= TOTAL_FOOD_CAP:
+                break
+            foods[room_id].append(random_food(1.0, "base"))
+            base_food_debt[room_id] -= 1
+
         food_dirty[room_id] = True
-        base_food_debt[room_id] -= 1
+
 
 
 def normalize_dir_unit(d: dict) -> dict:
@@ -205,14 +223,7 @@ def can_eat(head_x: float, head_y: float, food: dict) -> bool:
 
 
 def snake_build_every(length: int) -> int:
-    # было 2/3/4/5, из-за 5 у больших и шли ступеньки
-    if length < 120:
-        return 2
-    if length < 240:
-        return 2
-    if length < 360:
-        return 2
-    return 2
+    return 1
 
 
 def collect_food_near(room_id: str, x: float, y: float) -> List[dict]:
@@ -277,8 +288,15 @@ def head_hits_other_snake(
         ax, ay = float(a["x"]) + off, float(a["y"]) + off
         bx, by = float(b["x"]) + off, float(b["y"]) + off
 
-        prog = (i - start) / denom
-        k_tail = TAIL_RADIUS_SCALE if prog > 0.70 else 1.0
+        prog = (i - start) / denom  # 0 у "ближе к голове", 1 у "ближе к хвосту"
+
+        # после 60% длины начинаем плавно усиливать радиус к хвосту
+        if prog <= 0.60:
+            k_tail = 1.0
+        else:
+            t = (prog - 0.60) / 0.40  # 0..1
+            k_tail = 1.0 + (TAIL_RADIUS_SCALE - 1.0) * t
+
 
         rr2 = (float(r) * k_tail) ** 2
         if dist2_point_to_segment(px, py, ax, ay, bx, by) <= rr2:
@@ -664,9 +682,7 @@ async def game_loop():
                 need_path_len = (p["length"] + 10) * SEG_DIST
                 trim_path_fast(path, p, need_path_len)
 
-                every = snake_build_every(int(p["length"]))
-                if p["tick_i"] % every == 0 or not p["snake"]:
-                    p["snake"] = build_snake_from_path_fast(path, p["length"])
+                p["snake"] = build_snake_from_path_fast(path, p["length"])
 
                 if p["length"] < 2:
                     to_kill.append(pid)

@@ -27,7 +27,20 @@ const WORLD_W = 3000, WORLD_H = 3000;
 const SEGMENT = 30;
 const ROOM_ID = "room1";
 
-const CLIENT_SPEED = 4;
+const CLIENT_SPEED = 4; // только для глаз/направления, не для перемещения
+
+/* ===== server speed model (match server!) ===== */
+const SERVER_TICK_SEC = 0.025;
+const SERVER_SPEED = 7;
+const SERVER_BOOST_MULT = 1.8;
+
+const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;                   // 280 px/s
+const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC; // 504 px/s
+
+let predDirUnit = {x:1, y:0};     // направление для локального движения (сглаженное)
+let lastTurnTs = 0;               // анти-спам
+const TURN_MIN_MS = 55;           // минимум между сменами направления (подбери 45..70)
+
 
 let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
@@ -161,10 +174,10 @@ function smoothSnake(id, targetSnake, alpha){
 }
 
 /* =========================
-   SNAPSHOTS
+   SNAPSHOTS (OTHERS)
 ========================= */
 const snapshots = {};
-const SNAP_MAX = 18; // было 12, чуть больше буфер
+const SNAP_MAX = 18;
 
 function pushSnapshot(id, pl){
   const t = performance.now();
@@ -217,30 +230,14 @@ function sampleInterpSnake(id, renderTime){
   return {snake: out, boost: b.boost, color: b.color};
 }
 
-function sampleMe(renderTime){
-  const id = playerId;
-  const q = snapshots[id];
-  if(!q || q.length === 0) return null;
-  const last = q[q.length-1];
-  const prev = q.length >= 2 ? q[q.length-2] : null;
-
-  if(renderTime <= last.t) return sampleInterpSnake(id, renderTime);
-  if(!prev || !prev.snake?.length || !last.snake?.length) return {snake:last.snake, boost:last.boost, color:last.color};
-
-  const dt = Math.max(1, last.t - prev.t);
-  const hx0 = prev.snake[0].x, hy0 = prev.snake[0].y;
-  const hx1 = last.snake[0].x, hy1 = last.snake[0].y;
-
-  const vx = (hx1 - hx0) / dt;
-  const vy = (hy1 - hy0) / dt;
-
-  const lead = Math.min(65, renderTime - last.t);
-  const dx = vx * lead;
-  const dy = vy * lead;
-
-  const out = last.snake.map(p => ({x: p.x + dx, y: p.y + dy}));
-  return {snake: out, boost:last.boost, color:last.color};
-}
+/* =========================
+   ME: LOCAL PREDICTION (NO SNAP JITTER)
+========================= */
+let meBaseSnake = null;
+let meBaseHead  = null;
+let mePredHead  = null;
+let meLastPredTs = null;
+let meBaseBoost = false;
 
 /* =========================
    DEATH FLOW
@@ -311,25 +308,38 @@ function easeOutCubic(t){
 }
 
 /* =========================
-   CONTROL (input-fix)
+   CONTROL
 ========================= */
 let lastSent = 0;
 let lastDirSent = {x:1, y:0};
-let wantDirUnit = {x:1, y:0}; // именно unit, то что уходит на сервер
+let wantDirUnit = {x:1, y:0};
 
-function setDirection(newDir, source="mouse"){
+function setDirection(newDir){
   const len = Math.hypot(newDir.x,newDir.y);
   if(len===0) return;
 
   const nx = newDir.x/len;
   const ny = newDir.y/len;
 
-  // ВАЖНО: убрали жёсткий лимит угла, он часто создавал ощущение "управление пропало"
-  wantDirUnit = {x:nx, y:ny};
+  const now = performance.now();
 
+  // анти-спам: не даём менять направление слишком часто
+  // (но отправку на сервер всё равно можно делать по твоей логике)
+  const dx = nx - wantDirUnit.x;
+  const dy = ny - wantDirUnit.y;
+  const changed = (dx*dx + dy*dy) > 0.0009;
+
+  if(changed && (now - lastTurnTs) < TURN_MIN_MS){
+    // направление на сервер можно НЕ менять (иначе читерство остаётся)
+    return;
+  }
+  if(changed) lastTurnTs = now;
+
+  wantDirUnit = {x:nx, y:ny};
   dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
   sendDirection(nx, ny);
 }
+
 
 function sendDirection(nx, ny){
   if(!ws) return;
@@ -342,7 +352,6 @@ function sendDirection(nx, ny){
   const dy = ny - lastDirSent.y;
   const changed = (dx*dx + dy*dy) > 0.0009;
 
-  // heartbeat: даже если не менялось, раз в 140мс отправим
   if(!changed && (now - lastSent) < 140) return;
   if((now - lastSent) < 14) return;
 
@@ -359,7 +368,6 @@ function sendBoost(state){
   ws.send(JSON.stringify({boost: state}));
 }
 
-/* input heartbeat, чтобы при просадках FPS управление не "умирало" */
 let inputTimer = null;
 function startInputHeartbeat(){
   if(inputTimer) clearInterval(inputTimer);
@@ -370,7 +378,6 @@ function startInputHeartbeat(){
     if(!useMouse){
       applyKeyboardVector(true);
     } else {
-      // для мыши тоже дожимаем последнее направление
       sendDirection(wantDirUnit.x, wantDirUnit.y);
     }
   }, 40);
@@ -463,7 +470,6 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
-  // BOOST: видно у всех, даже в lowDetail (просто дешевле)
   if(boost){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
     const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
@@ -540,8 +546,9 @@ function applyKeyboardVector(forceSend=false){
   dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
 
   if(forceSend) sendDirection(nx, ny);
-  else setDirection({x: dx, y: dy}, "keys");
+  else setDirection({x: dx, y: dy});
 }
+
 
 /* =========================
    DRAW LOOP
@@ -552,7 +559,6 @@ function draw(ts){
 
   updateRafHz(ts);
 
-  // ВАЖНО: input обрабатываем каждый rAF, не завязываем на cap
   if(!isDying && !dead){
     if(!useMouse) applyKeyboardVector(true);
   }
@@ -590,23 +596,78 @@ function draw(ts){
 
   const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
   const interpOthers = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
-  const interpMe     = isDying ? 40 : Math.max(28, Math.min(55, baseDelay * 0.25));
 
   const renderPlayers = {};
 
-  // себя
-  if(players[playerId]){
-    const spMe = sampleMe(timeMs - interpMe);
-    if(spMe){
-      const n = spMe.snake?.length || 0;
-      const tau = Math.min(110, 55 + n * 0.08);     // длина больше -> мягче
-      const alpha = 1 - Math.exp(-dtFrame / tau);
-      const smooth = smoothSnake(playerId, spMe.snake, alpha);
-      renderPlayers[playerId] = { snake: smooth, boost: spMe.boost, color: spMe.color };
+  /* ===== ME: prediction ===== */
+  if(players[playerId] && meBaseSnake && meBaseHead && mePredHead){
+    if(meLastPredTs == null) meLastPredTs = timeMs;
+    let dtMs = timeMs - meLastPredTs;
+    meLastPredTs = timeMs;
+
+    if(dtMs > 60) dtMs = 60;
+
+    const spd = (meBaseBoost ? SPEED_BOOST_PX_S : SPEED_BASE_PX_S);
+    const ds = spd * (dtMs / 1000);
+
+    // плавно догоняем направление (чтобы не было "тормоза" на резких поворотах)
+    const ux = wantDirUnit?.x ?? 1;
+    const uy = wantDirUnit?.y ?? 0;
+
+    // alpha по времени кадра: 0.15..0.35 обычно норм
+    const turnAlpha = 1 - Math.exp(-dtMs / 65);
+
+    // lerp + нормализация
+    predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
+    predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
+    const pl = Math.hypot(predDirUnit.x, predDirUnit.y) || 1;
+    predDirUnit.x /= pl; predDirUnit.y /= pl;
+
+    mePredHead.x += predDirUnit.x * ds;
+    mePredHead.y += predDirUnit.y * ds;
+
+
+    // clamp отрыва
+    const dx = mePredHead.x - meBaseHead.x;
+    const dy = mePredHead.y - meBaseHead.y;
+    const maxLead = 90;
+    const d = Math.hypot(dx, dy);
+    if(d > maxLead){
+      const k = maxLead / d;
+      mePredHead.x = meBaseHead.x + dx * k;
+      mePredHead.y = meBaseHead.y + dy * k;
     }
+
+    // сдвигаем всю змею как rigid body
+    // сдвиг с затуханием: голова почти полностью, хвост почти нет
+    const offX = mePredHead.x - meBaseHead.x;
+    const offY = mePredHead.y - meBaseHead.y;
+
+    const n = meBaseSnake.length;
+
+    // “длина затухания” в сегментах: чем больше — тем более “резиновая”
+    const predSnake = new Array(n);
+
+    const falloffLen = 10;
+    for(let i=0;i<n;i++){
+    const t = i / falloffLen;
+    const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
+    const p = meBaseSnake[i];
+    predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
+    }
+
+    // чуть сгладим (чтобы глаза/камера вообще были шелковые)
+    const alphaMe = 1 - Math.exp(-dtFrame / 32);
+    const smoothMe = smoothSnake(playerId, predSnake, alphaMe);
+
+    renderPlayers[playerId] = {
+      snake: smoothMe,
+      boost: meBaseBoost,
+      color: players[playerId].color || "white"
+    };
   }
 
-  // остальные
+  /* ===== OTHERS: snapshot interpolation + smoothing ===== */
   const renderTime = timeMs - interpOthers;
   for(const id in players){
     if(id === playerId) continue;
@@ -614,7 +675,7 @@ function draw(ts){
     if(!sp) continue;
 
     const n = sp.snake?.length || 0;
-    const tau = Math.min(180, 110 + n * 0.10);      // длинные -> мягче, меньше дёрг
+    const tau = Math.min(180, 110 + n * 0.10);
     const alpha = 1 - Math.exp(-dtFrame / tau);
 
     const smooth = smoothSnake(id, sp.snake, alpha);
@@ -732,8 +793,33 @@ Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.roun
 /* =========================
    START / WS
 ========================= */
+function resetMePrediction(){
+  meBaseSnake = null;
+  meBaseHead = null;
+  mePredHead = null;
+  meLastPredTs = null;
+  meBaseBoost = false;
+  predDirUnit = {x:1, y:0};
+  lastTurnTs = 0;
+}
+
+
+function blendSnake(prev, next, k){
+  if(!next || !next.length) return next;
+  if(!prev || !prev.length) return next.map(p => ({x:p.x, y:p.y}));
+  const n = Math.max(prev.length, next.length);
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    const a = prev[i] || prev[prev.length-1];
+    const b = next[i] || next[next.length-1];
+    out[i] = { x: a.x + (b.x - a.x)*k, y: a.y + (b.y - a.y)*k };
+  }
+  return out;
+}
+
 function startGame(){
   resetDeathFlow();
+  resetMePrediction();
 
   dead = false;
   dir = {x:1,y:0};
@@ -784,6 +870,7 @@ function startGame(){
       postDeathWaitMs = 0;
       gotPostDeathState = false;
       sendBoost(false);
+      resetMePrediction();
       return;
     }
 
@@ -800,6 +887,30 @@ function startGame(){
     }
 
     for (const id in players) pushSnapshot(id, players[id]);
+
+    // update ME prediction base from latest server state (soft correction)
+    const me = players[playerId];
+    if(me && me.snake && me.snake.length){
+    const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
+
+    // сглаживаем "форму" (именно тело) между апдейтами сервера
+    // k: 0.25..0.45 (чем больше — тем быстрее догоняет)
+    meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
+
+    meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
+    meBaseBoost = !!me.boost;
+
+    if(!mePredHead){
+    mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
+    predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
+    }
+    else {
+            const k = 0.35;
+            mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
+            mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
+        }
+        }
+
   };
 
   ws.onclose=()=>{
@@ -820,7 +931,7 @@ canvas.addEventListener("mousemove", e=>{
   const head = me.snake[0];
   const mx = e.clientX + cameraX - head.x;
   const my = e.clientY + cameraY - head.y;
-  setDirection({x: mx, y: my}, "mouse");
+  setDirection({x: mx, y: my});
 });
 
 document.addEventListener("keydown", e=>{
