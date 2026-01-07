@@ -1,18 +1,16 @@
 # =========================
-# main.py (FULL) — OPTIMIZED INPUT + LOWER NET QUEUE
-# Что изменено:
-# 1) ping/pong для измерения RTT (клиент сам подстроит задержку интерполяции)
-# 2) dt-движение (speed *= dt/TICK) с clamp, чтобы не было "неровности" из-за тиков на сервере
-# 3) players шлём не каждый тик, а раз в PLAYERS_SEND_EVERY (сильно разгружает сеть и уменьшает input-lag)
-# 4) foods как и было — локально и раз в FOODS_SEND_EVERY
-# 5) исправлено: никаких html-комментов в python
+# main.py (FULL) — FIXES:
+# 1) УБРАНЫ ЛАГИ НА БОЛЬШИХ ЗМЕЙКАХ: новый build_snake_from_path_fast O(n)
+# 2) ХИТБОКС ХВОСТА: игнорируем последнюю часть хвоста + чуть меньше радиус у хвоста
+# 3) МЕНЬШЕ input-lag: PLAYERS_SEND_EVERY = 1 (снап каждый тик)
+# 4) СМЕРТЬ НЕ ФРИЗИТ ВСЕХ: corpse cap уменьшен + без лишних rebuild_grid в одном тике
 # =========================
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import asyncio, random, time, logging, math
 from collections import deque, defaultdict
-from typing import Dict, Tuple, Set, Optional, List
+from typing import Dict, Tuple, Set, Optional, List, Deque
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI()
@@ -45,17 +43,21 @@ MAX_GROW_PER_TICK = 1
 
 PATH_MAX_STEP = SEG_DIST * 1.4
 
-# corpse food (больше еды, но без спайков)
+# corpse food
 CORPSE_FOOD_SIZE = 1.7
 CORPSE_GROW_MULT = 2.0
 CORPSE_STEP = 3
 CORPSE_JITTER = SEGMENT * 0.14
-CORPSE_MAX_PER_DEATH = 220
+CORPSE_MAX_PER_DEATH = 130   # было 220 (это частая причина фризов при массовых врезаниях)
 
 HIT_RADIUS = SEGMENT * 1.10
 IGNORE_OTHER_HEAD_LEN = SEG_DIST * 1.5
 
-# ЕДА: очень близко к голове (радиус по центрам)
+# хвост: чтобы не ловить “липкий” tail-hitbox
+IGNORE_OTHER_TAIL_LEN = SEG_DIST * 2.2   # пропускаем последние ~2 сегмента
+TAIL_RADIUS_SCALE = 0.75                # ближе к хвосту считаем радиус меньше
+
+# EAT
 EAT_RADIUS = SEGMENT * 0.75
 EAT_RADIUS2 = EAT_RADIUS * EAT_RADIUS
 
@@ -67,13 +69,11 @@ GRID_CELL = int(SEGMENT * 10)        # 300px
 PLAYER_NEIGHBOR_CELLS = 2            # 5x5 вокруг
 SEND_TIMEOUT_SEC = 0.03              # таймаут на send_json
 
-# --- Stability knobs ---
 MAX_LEN = 450
-FOODS_SEND_EVERY = 4                 # раз в N тиков
-PLAYERS_SEND_EVERY = 2               # раз в N тиков (важно для снижения сетевой очереди)
+FOODS_SEND_EVERY = 4                 # ок
+PLAYERS_SEND_EVERY = 1               # ВАЖНО: каждый тик -> меньше input-lag
 
-# --- foods around player (server sends local only) ---
-FOOD_VIEW_CELLS = 6                  # радиус в GRID_CELL (6 => 13x13 клеток)
+FOOD_VIEW_CELLS = 6
 
 rooms: Dict[str, Dict[str, dict]] = {}
 connections: Dict[str, Dict[str, WebSocket]] = {}
@@ -82,17 +82,11 @@ foods: Dict[str, list] = {}
 food_grid: Dict[str, Dict[Tuple[int, int], Set[int]]] = {}
 player_grid: Dict[str, Dict[Tuple[int, int], Set[str]]] = {}
 food_dirty: Dict[str, bool] = defaultdict(bool)
-
 room_tick: Dict[str, int] = defaultdict(int)
 
-# --- base food respawn worker (per room) ---
 base_food_debt: Dict[str, int] = defaultdict(int)
 base_food_task: Dict[str, asyncio.Task] = {}
 
-
-# ---------------------------
-# helpers
-# ---------------------------
 
 def cell_of_xy(x: float, y: float) -> Tuple[int, int]:
     return int(x // GRID_CELL), int(y // GRID_CELL)
@@ -220,7 +214,6 @@ def snake_build_every(length: int) -> int:
     return 5
 
 
-
 def collect_food_near(room_id: str, x: float, y: float) -> List[dict]:
     cx, cy = cell_of_xy(x, y)
     g = food_grid.get(room_id) or {}
@@ -233,10 +226,6 @@ def collect_food_near(room_id: str, x: float, y: float) -> List[dict]:
                     out.append(arr[idx])
     return out
 
-
-# ---------------------------
-# Geometry
-# ---------------------------
 
 def _clamp(v: float, a: float, b: float) -> float:
     return a if v < a else b if v > b else v
@@ -261,15 +250,24 @@ def dist2_point_to_segment(px, py, ax, ay, bx, by) -> float:
     return dx * dx + dy * dy
 
 
-def head_hits_other_path(head: dict, other_path: deque, r: float, ignore_head_len: float) -> bool:
+def head_hits_other_path(
+    head: dict,
+    other_path: Deque[dict],
+    other_path_len: float,
+    r: float,
+    ignore_head_len: float,
+    ignore_tail_len: float,
+) -> bool:
     if not other_path or len(other_path) < 3:
         return False
 
     off = SEGMENT * 0.5
     px, py = float(head["x"]) + off, float(head["y"]) + off
-    rr2 = float(r) * float(r)
 
     acc = 0.0
+    # всё, что ближе к хвосту чем ignore_tail_len — пропускаем
+    tail_cut_from_head = max(0.0, other_path_len - float(ignore_tail_len))
+
     for i in range(len(other_path) - 1):
         a = other_path[i]
         b = other_path[i + 1]
@@ -281,10 +279,23 @@ def head_hits_other_path(head: dict, other_path: deque, r: float, ignore_head_le
         if seg_len < 1e-6:
             continue
 
+        # пропуск около головы соперника
         if acc < ignore_head_len:
             acc += seg_len
             continue
 
+        # пропуск около хвоста соперника (самая “липкая” зона)
+        if acc > tail_cut_from_head:
+            break
+
+        # ближе к хвосту делаем радиус чуть меньше
+        k_tail = 1.0
+        if other_path_len > 1e-6:
+            prog = acc / other_path_len
+            if prog > 0.70:
+                k_tail = TAIL_RADIUS_SCALE
+
+        rr2 = (float(r) * k_tail) ** 2
         if dist2_point_to_segment(px, py, ax, ay, bx, by) <= rr2:
             return True
 
@@ -293,11 +304,7 @@ def head_hits_other_path(head: dict, other_path: deque, r: float, ignore_head_le
     return False
 
 
-# ---------------------------
-# Path / body
-# ---------------------------
-
-def _append_path_node(path: deque, x: float, y: float) -> float:
+def _append_path_node(path: Deque[dict], x: float, y: float) -> float:
     if not path:
         path.appendleft({"x": x, "y": y, "ds": 0.0})
         return 0.0
@@ -312,7 +319,7 @@ def _append_path_node(path: deque, x: float, y: float) -> float:
     return ds
 
 
-def append_head_point_dense(path: deque, x: float, y: float, max_step: float = PATH_MAX_STEP) -> float:
+def append_head_point_dense(path: Deque[dict], x: float, y: float, max_step: float = PATH_MAX_STEP) -> float:
     if not path:
         path.appendleft({"x": x, "y": y, "ds": 0.0})
         return 0.0
@@ -325,21 +332,18 @@ def append_head_point_dense(path: deque, x: float, y: float, max_step: float = P
     if d < 1e-6:
         return 0.0
 
-    added = 0.0
-
     if d <= max_step:
-        added += _append_path_node(path, x, y)
-        return added
+        return _append_path_node(path, x, y)
 
+    added = 0.0
     steps = max(2, int(math.ceil(d / max_step)))
     for k in range(1, steps + 1):
         t = k / steps
         added += _append_path_node(path, hx + dx * t, hy + dy * t)
-
     return added
 
 
-def trim_path_fast(path: deque, p: dict, need_len: float):
+def trim_path_fast(path: Deque[dict], p: dict, need_len: float):
     while len(path) > 2 and float(p.get("path_len", 0.0)) > need_len:
         last = path.pop()
         p["path_len"] = float(p.get("path_len", 0.0)) - float(last.get("ds", 0.0))
@@ -347,40 +351,52 @@ def trim_path_fast(path: deque, p: dict, need_len: float):
             p["path_len"] = 0.0
 
 
-def sample_point(path: deque, dist_from_head: float) -> dict:
+def build_snake_from_path_fast(path: Deque[dict], length_segments: int) -> list:
+    """
+    Быстро: один проход по path.
+    path[0] — голова, у каждого узла есть ds (длина сегмента до предыдущего узла).
+    """
+    n = max(1, int(length_segments))
     if not path:
-        return {"x": 0.0, "y": 0.0}
+        return [{"x": 0.0, "y": 0.0}]
 
-    if dist_from_head <= 0:
-        return {"x": path[0]["x"], "y": path[0]["y"]}
+    out: List[dict] = []
+    want = 0.0
+
+    a = path[0]
+    ax, ay = float(a["x"]), float(a["y"])
+    out.append({"x": ax, "y": ay})
+    if n == 1:
+        return out
 
     acc = 0.0
     for i in range(len(path) - 1):
-        a = path[i]
         b = path[i + 1]
-        seg_len = float(b["ds"])
+        bx, by = float(b["x"]), float(b["y"])
+        seg_len = float(b.get("ds", 0.0))
         if seg_len <= 1e-6:
+            ax, ay = bx, by
             continue
 
-        if acc + seg_len >= dist_from_head:
-            t = (dist_from_head - acc) / seg_len
-            x = a["x"] + (b["x"] - a["x"]) * t
-            y = a["y"] + (b["y"] - a["y"]) * t
-            return {"x": x, "y": y}
+        while len(out) < n and (acc + seg_len) >= (want + SEG_DIST):
+            want += SEG_DIST
+            t = (want - acc) / seg_len
+            x = ax + (bx - ax) * t
+            y = ay + (by - ay) * t
+            out.append({"x": x, "y": y})
 
         acc += seg_len
+        ax, ay = bx, by
+        if len(out) >= n:
+            break
 
+    # если не добрали — дотянем последней точкой
     last = path[-1]
-    return {"x": last["x"], "y": last["y"]}
+    lx, ly = float(last["x"]), float(last["y"])
+    while len(out) < n:
+        out.append({"x": lx, "y": ly})
 
-
-def build_snake_from_path(path: deque, length_segments: int) -> list:
-    n = max(1, int(length_segments))
-    snake = []
-    for i in range(n):
-        p = sample_point(path, i * SEG_DIST)
-        snake.append({"x": p["x"], "y": p["y"]})
-    return snake
+    return out
 
 
 def spawn_corpse_food(room_id: str, p: dict):
@@ -395,16 +411,15 @@ def spawn_corpse_food(room_id: str, p: dict):
     if free <= 0:
         return
 
-    spawn_cap = min(int(CORPSE_MAX_PER_DEATH), int(free))
+    # мягкая адаптация: чем больше игроков, тем меньше corpse на смерть
+    players_cnt = len(rooms.get(room_id, {}))
+    adapt = max(70, int(CORPSE_MAX_PER_DEATH * (1.0 if players_cnt <= 6 else 0.7)))
+    spawn_cap = min(int(adapt), int(free))
     if spawn_cap <= 0:
         return
 
     step = max(1, int(CORPSE_STEP))
     points = body[::step]
-
-    if len(points) < spawn_cap and step > 2:
-        points = body[::2]
-
     if len(points) > spawn_cap:
         stride = max(1, int(math.floor(len(points) / spawn_cap)))
         points = points[::stride]
@@ -437,10 +452,6 @@ def spawn_corpse_food(room_id: str, p: dict):
     food_dirty[room_id] = True
 
 
-# ---------------------------
-# Web
-# ---------------------------
-
 @app.get("/")
 async def index():
     with open("index.html", encoding="utf-8") as f:
@@ -463,7 +474,7 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
     x = random.randint(8, (WORLD_W // SEGMENT) - 8) * SEGMENT
     y = random.randint(8, (WORLD_H // SEGMENT) - 8) * SEGMENT
 
-    path = deque()
+    path: Deque[dict] = deque()
     path.appendleft({"x": float(x), "y": float(y), "ds": 0.0})
 
     init_path_len = 0.0
@@ -501,7 +512,6 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
             if not p:
                 continue
 
-            # --- ping/pong ---
             if data.get("type") == "ping":
                 await safe_send(ws, {"type": "pong", "t": data.get("t", 0)})
                 continue
@@ -528,13 +538,21 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
         rebuild_player_grid(room_id)
 
 
-# ---------------------------
-# Networking
-# ---------------------------
-
 async def safe_send(sock: WebSocket, payload: dict):
     try:
         await asyncio.wait_for(sock.send_json(payload), timeout=SEND_TIMEOUT_SEC)
+    except Exception:
+        pass
+    
+death_tasks: Set[asyncio.Task] = set()
+
+async def death_flow(ws: WebSocket, last_payload: dict):
+    try:
+        await safe_send(ws, last_payload)
+        await asyncio.sleep(DEATH_SNAPSHOT_DELAY)
+        await safe_send(ws, {"type": "death"})
+        await asyncio.sleep(DEATH_AFTER_DELAY)
+        await ws.close()
     except Exception:
         pass
 
@@ -555,10 +573,6 @@ def iter_neighbor_food_indices(room_id: str, cx: int, cy: int):
                 yield idx
 
 
-# ---------------------------
-# Game loop
-# ---------------------------
-
 async def game_loop():
     logging.info("Game loop started")
     next_t = time.perf_counter()
@@ -571,10 +585,9 @@ async def game_loop():
             continue
         next_t = now_pc + TICK
 
-        # dt для стабильности движения при микронагрузке сервера
         dt = now_pc - last_pc
         last_pc = now_pc
-        dt = max(0.010, min(dt, 0.050))  # clamp
+        dt = max(0.010, min(dt, 0.050))
         dt_mul = dt / TICK
 
         for room_id in list(rooms.keys()):
@@ -616,7 +629,6 @@ async def game_loop():
                 added = append_head_point_dense(path, nx, ny, PATH_MAX_STEP)
                 p["path_len"] = float(p.get("path_len", 0.0)) + float(added)
 
-                # --- FOOD via grid ---
                 cx, cy = cell_of_xy(nx, ny)
                 eat_idx: Optional[int] = None
                 for idx in iter_neighbor_food_indices(room_id, cx, cy):
@@ -638,14 +650,12 @@ async def game_loop():
                     last = arr[-1]
                     arr[eat_idx] = last
                     arr.pop()
-
                     food_dirty[room_id] = True
 
                     if f.get("kind") == "base":
                         base_food_debt[room_id] += 1
                         ensure_base_food_worker(room_id)
 
-                # --- GROW ---
                 add_now = min(int(p["pending_grow"]), MAX_GROW_PER_TICK)
                 if add_now > 0:
                     p["length"] += add_now
@@ -655,20 +665,20 @@ async def game_loop():
                     p["length"] = MAX_LEN
                     p["pending_grow"] = 0
 
-                # --- BOOST drain ---
                 if p.get("boost", False) and p["length"] > BOOST_MIN_LEN:
                     if p["tick_i"] % BOOST_DROP_EVERY_TICKS == 0:
                         if p["pending_grow"] > 0:
                             p["pending_grow"] = max(0, int(p["pending_grow"]) - 1)
                         else:
                             if p["length"] > BOOST_MIN_LEN:
-                                tail_pos = sample_point(path, (p["length"] - 1) * SEG_DIST)
+                                # чтобы не считать sample_point медленно — используем хвостовую точку path[-1]
+                                tail = path[-1]
                                 p["length"] -= 1
 
                                 if count_kind(room_id, "drop") < DROP_FOOD_CAP and len(foods[room_id]) < TOTAL_FOOD_CAP:
                                     foods[room_id].append({
-                                        "x": int(tail_pos["x"] // SEGMENT) * SEGMENT,
-                                        "y": int(tail_pos["y"] // SEGMENT) * SEGMENT,
+                                        "x": int(float(tail["x"]) // SEGMENT) * SEGMENT,
+                                        "y": int(float(tail["y"]) // SEGMENT) * SEGMENT,
                                         "color": p["color"],
                                         "size": float(BOOST_FOOD_SIZE),
                                         "kind": "drop",
@@ -680,7 +690,7 @@ async def game_loop():
 
                 every = snake_build_every(int(p["length"]))
                 if p["tick_i"] % every == 0 or not p["snake"]:
-                    p["snake"] = build_snake_from_path(path, p["length"])
+                    p["snake"] = build_snake_from_path_fast(path, p["length"])
 
                 if p["length"] < 2:
                     to_kill.append(pid)
@@ -715,55 +725,69 @@ async def game_loop():
                     if not other_path or len(other_path) < 3:
                         continue
 
-                    if head_hits_other_path(head, other_path, HIT_RADIUS, IGNORE_OTHER_HEAD_LEN):
+                    if head_hits_other_path(
+                        head=head,
+                        other_path=other_path,
+                        other_path_len=float(op.get("path_len", 0.0)),
+                        r=HIT_RADIUS,
+                        ignore_head_len=IGNORE_OTHER_HEAD_LEN,
+                        ignore_tail_len=IGNORE_OTHER_TAIL_LEN,
+                    ):
                         to_kill.append(pid)
                         break
 
+            # rebuild food grid один раз в конце тика, если надо
             if food_dirty.get(room_id, False):
                 rebuild_food_grid(room_id)
                 food_dirty[room_id] = False
 
-            # 3) kills
-            for pid in set(to_kill):
-                dead_p = players.get(pid)
-                dead_head = None
-                if dead_p:
-                    dead_head = dead_p.get("head")
-                    spawn_corpse_food(room_id, dead_p)
-
+            # 3) kills (НЕ БЛОЧИМ game_loop)
+            killed = set(to_kill)
+            if killed:
+                # 3.1) сначала заспавним corpse всем разом
+                for pid in killed:
+                    dead_p = players.get(pid)
+                    if dead_p:
+                        spawn_corpse_food(room_id, dead_p)
+                # rebuild food grid один раз
                 if food_dirty.get(room_id, False):
                     rebuild_food_grid(room_id)
                     food_dirty[room_id] = False
 
-                payload_players_dead = {
+                # 3.2) подготовим общий payload игроков (без умершего будем фильтровать ниже)
+                payload_players_all = {
                     k: {"snake": v["snake"], "color": v["color"], "boost": bool(v.get("boost", False))}
                     for k, v in players.items()
-                    if k != pid
+                    if k not in killed
                 }
 
-                if dead_head:
-                    last_payload = {
-                        "players": payload_players_dead,
-                        "foods": collect_food_near(room_id, float(dead_head["x"]), float(dead_head["y"])),
-                    }
-                else:
-                    last_payload = {"players": payload_players_dead, "foods": []}
+                # 3.3) для каждого умершего — отдельный фон
+                for pid in killed:
+                    dead_p = players.get(pid)
+                    dead_head = dead_p.get("head") if dead_p else None
 
-                ws_dead = connections.get(room_id, {}).get(pid)
-                if ws_dead:
-                    try:
-                        await safe_send(ws_dead, last_payload)
-                        await asyncio.sleep(DEATH_SNAPSHOT_DELAY)
-                        await safe_send(ws_dead, {"type": "death"})
-                        await asyncio.sleep(DEATH_AFTER_DELAY)
-                        await ws_dead.close()
-                    except Exception:
-                        pass
+                    if dead_head:
+                        last_payload = {
+                            "players": payload_players_all,
+                            "foods": collect_food_near(room_id, float(dead_head["x"]), float(dead_head["y"])),
+                        }
+                    else:
+                        last_payload = {"players": payload_players_all, "foods": []}
 
-                connections.get(room_id, {}).pop(pid, None)
-                players.pop(pid, None)
+                    ws_dead = connections.get(room_id, {}).pop(pid, None)
+                    if ws_dead:
+                        t = asyncio.create_task(death_flow(ws_dead, last_payload))
+                        death_tasks.add(t)
+                        t.add_done_callback(death_tasks.discard)
 
-            # 4) broadcast: players реже, foods локально и реже
+                    # удаляем игрока сразу, без ожиданий
+                    players.pop(pid, None)
+
+                # после удалений — сетка игроков
+                rebuild_player_grid(room_id)
+
+
+            # 4) broadcast
             send_foods = (room_tick[room_id] % FOODS_SEND_EVERY == 0)
             send_players = (room_tick[room_id] % PLAYERS_SEND_EVERY == 0)
 

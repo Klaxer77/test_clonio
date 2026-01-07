@@ -1,8 +1,8 @@
 <!-- =========================
-index.html (FULL) — INPUT FEELS FASTER ON REMOTE
-Что изменено:
-1) ping/pong RTT + адаптивная задержка интерполяции (не фикс 100ms)
-2) sendDirection: чаще (до ~60Hz) и только при заметном изменении
+index.html (FULL) — FIXES:
+1) интерполяция учитывает реальный интервал снапшотов (PLAYERS_SEND_EVERY=1)
+2) для СЕБЯ: меньшая задержка + лёгкая экстраполяция (меньше input-lag)
+3) boost-эффект рисуется У ВСЕХ (не только isMe)
 ========================= -->
 <!DOCTYPE html>
 <html lang="ru">
@@ -116,13 +116,15 @@ function startRttPing(){
 }
 
 /* =========================
-   ADAPTIVE FPS CAP
+   ADAPTIVE FPS CAP + SNAP TIMING
 ========================= */
 const TARGET_CAP = 75;
+
+// ДОЛЖНО СОВПАДАТЬ С СЕРВЕРОМ
 const SERVER_TICK_MS = 25;
-const PLAYERS_SEND_EVERY = 2;
-const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY; // 50
-const MIN_INTERP_MS = Math.max(80, Math.ceil(SNAP_INTERVAL_MS * 1.8)); // 90
+const PLAYERS_SEND_EVERY = 1;                 // <-- мы под это фиксили сервер
+const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY; // 25
+const MIN_INTERP_MS = Math.max(55, Math.ceil(SNAP_INTERVAL_MS * 2.2)); // ~55..60
 
 const rafMeter = {
   lastTs: null,
@@ -192,6 +194,93 @@ function smoothSnake(id, targetSnake, alpha){
 
   renderCache[id] = out;
   return out;
+}
+
+/* =========================
+   SNAPSHOTS + EXTRAPOLATION (для себя)
+========================= */
+const snapshots = {};
+const SNAP_MAX = 12;
+
+function pushSnapshot(id, pl){
+  const t = performance.now();
+  const q = snapshots[id] || (snapshots[id] = []);
+  q.push({
+    t,
+    snake: (pl.snake || []).map(p => ({x:p.x, y:p.y})),
+    boost: !!pl.boost,
+    color: pl.color || "white"
+  });
+  while(q.length > SNAP_MAX) q.shift();
+}
+
+function cleanupSnapshots(){
+  for(const id in snapshots){
+    if(!players[id]) delete snapshots[id];
+  }
+}
+
+function sampleInterpSnake(id, renderTime){
+  const q = snapshots[id];
+  if(!q || q.length === 0) return null;
+  if(q.length === 1) return {snake: q[0].snake, boost:q[0].boost, color:q[0].color};
+
+  let a = null, b = null;
+  for(let i=0;i<q.length-1;i++){
+    if(q[i].t <= renderTime && renderTime <= q[i+1].t){
+      a = q[i]; b = q[i+1]; break;
+    }
+  }
+
+  // вне диапазона — вернём край
+  if(!a || !b){
+    if(renderTime < q[0].t) return {snake:q[0].snake, boost:q[0].boost, color:q[0].color};
+    return {snake:q[q.length-1].snake, boost:q[q.length-1].boost, color:q[q.length-1].color};
+  }
+
+  const dt = (b.t - a.t);
+  const k = dt <= 1 ? 0 : clamp01((renderTime - a.t) / dt);
+
+  const n = Math.max(a.snake.length, b.snake.length);
+  if(n === 0) return {snake:[], boost:b.boost, color:b.color};
+
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    const pa = a.snake[i] || a.snake[a.snake.length-1];
+    const pb = b.snake[i] || b.snake[b.snake.length-1];
+    out[i] = {x: lerp(pa.x, pb.x, k), y: lerp(pa.y, pb.y, k)};
+  }
+
+  return {snake: out, boost: b.boost, color: b.color};
+}
+
+// очень лёгкая экстраполяция ТОЛЬКО ДЛЯ СЕБЯ: если renderTime уже “в будущем” относительно последнего снапа
+function sampleMe(renderTime){
+  const id = playerId;
+  const q = snapshots[id];
+  if(!q || q.length === 0) return null;
+  const last = q[q.length-1];
+  const prev = q.length >= 2 ? q[q.length-2] : null;
+
+  // в пределах — обычная интерполяция
+  if(renderTime <= last.t) return sampleInterpSnake(id, renderTime);
+
+  // дальше — экстраполируем сдвигом по скорости головы
+  if(!prev || !prev.snake?.length || !last.snake?.length) return {snake:last.snake, boost:last.boost, color:last.color};
+
+  const dt = Math.max(1, last.t - prev.t);
+  const hx0 = prev.snake[0].x, hy0 = prev.snake[0].y;
+  const hx1 = last.snake[0].x, hy1 = last.snake[0].y;
+
+  const vx = (hx1 - hx0) / dt;
+  const vy = (hy1 - hy0) / dt;
+
+  const lead = Math.min(65, renderTime - last.t); // не улетать далеко
+  const dx = vx * lead;
+  const dy = vy * lead;
+
+  const out = last.snake.map(p => ({x: p.x + dx, y: p.y + dy}));
+  return {snake: out, boost:last.boost, color:last.color};
 }
 
 /* =========================
@@ -300,10 +389,10 @@ function sendDirection(nx, ny){
 
   const dx = nx - lastDirSent.x;
   const dy = ny - lastDirSent.y;
-  const changed = (dx*dx + dy*dy) > 0.0009; // порог
+  const changed = (dx*dx + dy*dy) > 0.0009;
 
-  if(!changed && (now - lastSent) < 80) return; // иногда дублируем
-  if((now - lastSent) < 16) return;             // максимум ~60Hz
+  if(!changed && (now - lastSent) < 80) return;
+  if((now - lastSent) < 16) return;
 
   lastSent = now;
   lastDirSent = {x:nx, y:ny};
@@ -315,63 +404,6 @@ function sendBoost(state){
   if(state === serverBoosting) return;
   serverBoosting = state;
   ws.send(JSON.stringify({boost: state}));
-}
-
-/* =========================
-   SNAPSHOTS
-========================= */
-const snapshots = {};
-const SNAP_MAX = 10;
-
-function pushSnapshot(id, pl){
-  const t = performance.now();
-  const q = snapshots[id] || (snapshots[id] = []);
-  q.push({
-    t,
-    snake: (pl.snake || []).map(p => ({x:p.x, y:p.y})),
-    boost: !!pl.boost,
-    color: pl.color || "white"
-  });
-  while(q.length > SNAP_MAX) q.shift();
-}
-
-function cleanupSnapshots(){
-  for(const id in snapshots){
-    if(!players[id]) delete snapshots[id];
-  }
-}
-
-function sampleInterpSnake(id, renderTime){
-  const q = snapshots[id];
-  if(!q || q.length === 0) return null;
-  if(q.length === 1) return {snake: q[0].snake, boost:q[0].boost, color:q[0].color};
-
-  let a = null, b = null;
-  for(let i=0;i<q.length-1;i++){
-    if(q[i].t <= renderTime && renderTime <= q[i+1].t){
-      a = q[i]; b = q[i+1]; break;
-    }
-  }
-
-  if(!a || !b){
-    if(renderTime < q[0].t) return {snake:q[0].snake, boost:q[0].boost, color:q[0].color};
-    return {snake:q[q.length-1].snake, boost:q[q.length-1].boost, color:q[q.length-1].color};
-  }
-
-  const dt = (b.t - a.t);
-  const k = dt <= 1 ? 0 : clamp01((renderTime - a.t) / dt);
-
-  const n = Math.max(a.snake.length, b.snake.length);
-  if(n === 0) return {snake:[], boost:b.boost, color:b.color};
-
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const pa = a.snake[i] || a.snake[a.snake.length-1];
-    const pb = b.snake[i] || b.snake[b.snake.length-1];
-    out[i] = {x: lerp(pa.x, pb.x, k), y: lerp(pa.y, pb.y, k)};
-  }
-
-  return {snake: out, boost: b.boost, color: b.color};
 }
 
 /* =========================
@@ -461,14 +493,15 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
-  if(boost && isMe){
+  // BOOST ЭФФЕКТ ВИДЕН У ВСЕХ (но бюджетно)
+  if(boost && !lowDetail){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
     const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    ctx.strokeStyle = `rgba(255,255,255,${0.12 + 0.12*pulse1})`;
-    ctx.lineWidth = BODY_WIDTH * (2.05 + 0.40*pulse2);
+    ctx.strokeStyle = `rgba(255,255,255,${0.10 + 0.10*pulse1})`;
+    ctx.lineWidth = BODY_WIDTH * ((isMe ? 2.05 : 1.65) + 0.35*pulse2);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -572,18 +605,32 @@ function draw(ts){
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Адаптивная задержка интерполяции по RTT
-  const baseDelay = Math.min(120, Math.max(25, rtt * 0.35));
-  const interpDelay = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
-  const renderTime = timeMs - interpDelay;
+  // Для СЕБЯ держим задержку меньше, для остальных — обычная (чтобы не дёргались)
+  const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
+  const interpOthers = isDying ? 40 : Math.max(MIN_INTERP_MS, baseDelay);
+  const interpMe     = isDying ? 40 : Math.max(28, Math.min(55, baseDelay * 0.25));
 
   const renderPlayers = {};
+
+  // сначала себя
+  if(players[playerId]){
+    const spMe = sampleMe(timeMs - interpMe);
+    if(spMe){
+      const tau = 55;
+      const alpha = 1 - Math.exp(-dtFrame / tau);
+      const smooth = smoothSnake(playerId, spMe.snake, alpha);
+      renderPlayers[playerId] = { snake: smooth, boost: spMe.boost, color: spMe.color };
+    }
+  }
+
+  // остальных — обычная интерполяция
+  const renderTime = timeMs - interpOthers;
   for(const id in players){
+    if(id === playerId) continue;
     const sp = sampleInterpSnake(id, renderTime);
     if(!sp) continue;
 
-    const isMe = (id === playerId);
-    const tau = isMe ? 70 : 110;
+    const tau = 110;
     const alpha = 1 - Math.exp(-dtFrame / tau);
 
     const smooth = smoothSnake(id, sp.snake, alpha);
@@ -734,9 +781,7 @@ function startGame(){
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
 
-  ws.onopen = () => {
-    startRttPing();
-  };
+  ws.onopen = () => startRttPing();
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
@@ -776,9 +821,7 @@ function startGame(){
 
   ws.onclose=()=>{
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
-    if(!isDying){
-      setTimeout(()=>showMenuAfterDeath(), 150);
-    }
+    if(!isDying) setTimeout(()=>showMenuAfterDeath(), 150);
   };
 }
 
