@@ -255,6 +255,8 @@ const MOBILE_SNAKE_SCALE  = 0.60; // <-- тут можешь поднять/оп
 
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;   // будет переопределено на старте на мобилке
 let GRID_STEP = Math.round(SEGMENT * 2.4);
+const MOBILE_VIEW_ZOOM = 0.82; // меньше = дальше камера
+let VIEW_ZOOM = 1;
 
 /* =========================
    FPS METER
@@ -362,9 +364,10 @@ function fitCanvas(){
     canvas.height = Math.floor(h * dpr);
 
     // координатная система = CSS-пиксели
-    const z = (isTouchDevice ? (VIEW_ZOOM || 1) : 1);
+    const z = isTouchDevice ? (VIEW_ZOOM || 1) : 1;
     ctx.setTransform(dpr * z, 0, 0, dpr * z, 0, 0);
     ctx.imageSmoothingEnabled = true;
+
 
   } else {
     canvas.width = w;
@@ -1047,8 +1050,6 @@ function startGame(){
 
   // СКЕЙЛ: только для мобилки увеличиваем
   SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
-  const MOBILE_VIEW_ZOOM = 0.82; // 1 = как сейчас; меньше = дальше камера (визуально медленнее)
-  let VIEW_ZOOM = 1;
 
   dir = {x:1,y:0};
   wantDirUnit = {x:1,y:0};
@@ -1076,7 +1077,6 @@ function startGame(){
 
   useTouch = !!isTouchDevice;
   VIEW_ZOOM = isTouchDevice ? MOBILE_VIEW_ZOOM : 1;
-  fitCanvas(); // важно: после установки зума
 
   if(useTouch){
     useMouse = false;
