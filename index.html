@@ -2,25 +2,54 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Snake Smooth Multiplayer</title>
   <style>
-    html,body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);color:white;}
-    canvas{display:block;outline:none;touch-action:none;}
-    #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background: rgba(0,0,0,0.82);gap:14px;text-align:center;padding:24px;box-sizing:border-box;}
+    html,body{
+      margin:0;padding:0;
+      overflow:hidden;
+      font-family:Arial,sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
+      color:white;
+      height:100%;
+    }
+
+    /* важно для iOS: чтобы не было скролла/зумов от жестов */
+    body{ position:fixed; inset:0; }
+
+    canvas{
+      display:block;
+      outline:none;
+      touch-action:none;
+    }
+
+    #menu{
+      position:fixed;inset:0;
+      display:flex;align-items:center;justify-content:center;flex-direction:column;
+      background: rgba(0,0,0,0.82);
+      gap:14px;text-align:center;padding:24px;box-sizing:border-box;
+      z-index:30;
+    }
     button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
     button:hover{background:#7CFF7C;}
-    .hud{position:fixed;left:12px;top:10px;z-index:5;font-size:14px;opacity:.85;user-select:none;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.6);line-height:1.35;white-space:pre;}
+
+    .hud{
+      position:fixed;left:12px;top:10px;z-index:25;
+      font-size:14px;opacity:.85;user-select:none;pointer-events:none;
+      text-shadow:0 1px 2px rgba(0,0,0,.6);
+      line-height:1.35;white-space:pre;
+    }
 
     /* ===== MOBILE UI (НЕ ТРОГАЕТ ДЕСКТОП) ===== */
     #touchUI{
       position:fixed;
       inset:0;
       z-index:20;
-      display:none;               /* включаем только на тач-устройствах */
-      pointer-events:none;        /* включим на элементах */
+      display:none;          /* включаем только на тач */
+      pointer-events:none;
       touch-action:none;
     }
+
     #joyWrap{
       position:absolute;
       left:16px;
@@ -54,6 +83,8 @@
       transform:translate(0,0);
       will-change:transform;
     }
+
+    /* справа оставили только ускорение */
     #btnWrap{
       position:absolute;
       right:16px;
@@ -80,7 +111,6 @@
     }
     .touchBtn:active{ transform: translateY(1px); }
 
-    /* мобильный HUD чуть ниже, чтобы не мешал */
     @media (pointer:coarse){
       .hud{top:8px;left:10px;font-size:12px;opacity:.78;}
     }
@@ -104,17 +134,16 @@
     </div>
     <div id="btnWrap">
       <button id="boostBtn" class="touchBtn">Ускорение</button>
-      <button id="fsBtn" class="touchBtn">Полный экран</button>
     </div>
   </div>
 
 <script>
 /*
-  ДОБАВЛЕНО:
-  1) Тач-управление: джойстик + кнопка ускорения.
-     Джойстик задаёт target heading, а поворот идёт тем же "рулём", что и на ПК (угловая скорость).
-  2) Полный экран на мобильных (по кнопке).
-  3) ПК-версия не меняется: тач-UI включается только на (pointer:coarse) / touch.
+  ИЗМЕНЕНИЯ:
+  - Убрана кнопка "полный экран" (на iPhone это почти всегда не работает нормально).
+  - На мобилке игра сама занимает весь экран через visualViewport.
+  - Увеличен размер змейки ТОЛЬКО на тач-устройствах.
+  - ПК-версия по логике/управлению не меняется.
 */
 
 const WORLD_W = 3000, WORLD_H = 3000;
@@ -136,8 +165,8 @@ let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
 
 /* режимы ввода */
-let useMouse = false;     // ПК: M
-let useTouch = false;     // мобилка: авто
+let useMouse = false;     // ПК: M / Ь
+let useTouch = false;     // моб: авто
 
 let serverBoosting = false;
 const keysDown = new Set();
@@ -157,7 +186,6 @@ const touchUI = document.getElementById("touchUI");
 const joyWrap = document.getElementById("joyWrap");
 const joyKnob = document.getElementById("joyKnob");
 const boostBtn = document.getElementById("boostBtn");
-const fsBtn = document.getElementById("fsBtn");
 
 const isTouchDevice =
   (window.matchMedia && window.matchMedia("(pointer:coarse)").matches) ||
@@ -179,9 +207,12 @@ function normAngle(a){
 }
 
 /* =========================
-   SCALE
+   SCALE (ПК не трогаем)
 ========================= */
-const SNAKE_SCALE = 1.35;
+const DESKTOP_SNAKE_SCALE = 1.35;
+const MOBILE_SNAKE_SCALE  = 1.10; // <-- тут можешь поднять/опустить под себя
+
+let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;   // будет переопределено на старте на мобилке
 let GRID_STEP = Math.round(SEGMENT * 2.4);
 
 /* =========================
@@ -262,6 +293,44 @@ let capHz = 60;
 function getCapHz(){
   return Math.min(rafMeter.hz || 60, TARGET_CAP);
 }
+
+/* =========================
+   CANVAS SIZE (iOS visualViewport)
+   ПК не ломаем: обычный innerWidth/innerHeight
+========================= */
+function fitCanvas(){
+  const vv = window.visualViewport;
+
+  const w = vv ? Math.round(vv.width)  : innerWidth;
+  const h = vv ? Math.round(vv.height) : innerHeight;
+
+  if(isTouchDevice){
+    // на мобилке делаем чётко (DPR)
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width  = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0); // рисуем в CSS-пикселях
+  } else {
+    // ПК как было
+    canvas.width = w;
+    canvas.height = h;
+    ctx.setTransform(1,0,0,1,0,0);
+  }
+}
+window.addEventListener("resize", fitCanvas);
+window.visualViewport?.addEventListener("resize", fitCanvas);
+window.visualViewport?.addEventListener("scroll", fitCanvas);
+
+/* =========================
+   RENDER HELPERS (пересчитываем от SNAKE_SCALE)
+========================= */
+function bodyWidth(){ return SEGMENT * 0.95 * SNAKE_SCALE; }
+function headRadius(){ return bodyWidth() * 0.50; }
+function eyeWhiteR(){ return headRadius() * 0.38; }
+function eyePupilR(){ return eyeWhiteR() * 0.45; }
+function pupilShift(){ return eyeWhiteR() * 0.35; }
 
 /* =========================
    RENDER SMOOTH (DT-AWARE)
@@ -562,15 +631,8 @@ function updateCamera(renderMeSnake){
 }
 
 /* =========================
-   RENDER HELPERS
+   DRAW HELPERS
 ========================= */
-const BODY_WIDTH = SEGMENT * 0.95 * SNAKE_SCALE;
-const HEAD_RADIUS = (BODY_WIDTH * 0.50);
-
-const EYE_WHITE_R = HEAD_RADIUS * 0.38;
-const EYE_PUPIL_R = EYE_WHITE_R * 0.45;
-const PUPIL_SHIFT = EYE_WHITE_R * 0.35;
-
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
 
@@ -588,8 +650,13 @@ function drawSnakeEyes(s, look){
   const cx = h.x - cameraX + SEGMENT/2;
   const cy = h.y - cameraY + SEGMENT/2;
 
-  const side = HEAD_RADIUS * 0.55;
-  const fwd  = HEAD_RADIUS * 0.20;
+  const HR = headRadius();
+  const EWR = eyeWhiteR();
+  const EPR = eyePupilR();
+  const PS  = pupilShift();
+
+  const side = HR * 0.55;
+  const fwd  = HR * 0.20;
 
   const ex1 = cx + lx*side + fx*fwd;
   const ey1 = cy + ly*side + fy*fwd;
@@ -604,17 +671,17 @@ function drawSnakeEyes(s, look){
   const lookF = clamp01(dx*fx + dy*fy);
   const lookL = clamp01(dx*lx + dy*ly);
 
-  const pxShiftX = fx*(lookF*PUPIL_SHIFT) + lx*(lookL*PUPIL_SHIFT);
-  const pxShiftY = fy*(lookF*PUPIL_SHIFT) + ly*(lookL*PUPIL_SHIFT);
+  const pxShiftX = fx*(lookF*PS) + lx*(lookL*PS);
+  const pxShiftY = fy*(lookF*PS) + ly*(lookL*PS);
 
   ctx.save();
   ctx.fillStyle = "white";
-  ctx.beginPath(); ctx.arc(ex1, ey1, EYE_WHITE_R, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(ex2, ey2, EYE_WHITE_R, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex1, ey1, EWR, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex2, ey2, EWR, 0, Math.PI*2); ctx.fill();
 
   ctx.fillStyle = "black";
-  ctx.beginPath(); ctx.arc(ex1 + pxShiftX, ey1 + pxShiftY, EYE_PUPIL_R, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(ex2 + pxShiftX, ey2 + pxShiftY, EYE_PUPIL_R, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex1 + pxShiftX, ey1 + pxShiftY, EPR, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex2 + pxShiftX, ey2 + pxShiftY, EPR, 0, Math.PI*2); ctx.fill();
   ctx.restore();
 }
 
@@ -632,12 +699,15 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
+  const BW = bodyWidth();
+  const HR = headRadius();
+
   if(boost){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
     const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
 
     const glowAlpha = lowDetail ? 0.10 : (0.16 + 0.10*pulse1);
-    const glowW = BODY_WIDTH * ((isMe ? 2.10 : 1.95) + 0.45*pulse2);
+    const glowW = BW * ((isMe ? 2.10 : 1.95) + 0.45*pulse2);
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -653,7 +723,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   }
 
   ctx.strokeStyle = color || "white";
-  ctx.lineWidth = BODY_WIDTH;
+  ctx.lineWidth = BW;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
@@ -664,7 +734,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   const head = s[0];
   ctx.fillStyle = color || "white";
   ctx.beginPath();
-  ctx.arc(head.x - cameraX + SEGMENT/2, head.y - cameraY + SEGMENT/2, HEAD_RADIUS, 0, Math.PI*2);
+  ctx.arc(head.x - cameraX + SEGMENT/2, head.y - cameraY + SEGMENT/2, HR, 0, Math.PI*2);
   ctx.fill();
 
   let look = null;
@@ -688,16 +758,6 @@ function normKey(k){
   if(k === "в") return "d";
   return k;
 }
-
-/* =========================
-   CANVAS SIZE (включая full screen)
-========================= */
-function fitCanvas(){
-  canvas.width = innerWidth;
-  canvas.height = innerHeight;
-}
-window.addEventListener("resize", fitCanvas);
-document.addEventListener("fullscreenchange", fitCanvas);
 
 /* =========================
    DRAW LOOP
@@ -826,7 +886,7 @@ function draw(ts){
 
   hud.textContent =
 `Режим: ${useTouch ? "моб (джойстик)" : (useMouse ? "мышь" : "клава (A/D рулит, W быстрее, S точнее)")} | Игроков: ${Object.keys(players).length} | FPS: ${fps}
-Cap: ${Math.round(capHz)} (rAF≈${Math.round(rafMeter.hz)}) | RTT≈${Math.round(rtt)}ms | Ускорение: ${boostActive ? "вкл" : "выкл"} | M: режим (ПК)`;
+Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${boostActive ? "вкл" : "выкл"} | M/Ь: режим (ПК)`;
 
   updateCamera(meRender);
 
@@ -926,6 +986,10 @@ function blendSnake(prev, next, k){
 
 function startGame(){
   dead = false;
+
+  // СКЕЙЛ: только для мобилки увеличиваем
+  SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
+
   dir = {x:1,y:0};
   wantDirUnit = {x:1,y:0};
   initHeadingFromVector(wantDirUnit);
@@ -941,7 +1005,7 @@ function startGame(){
   lastAxisX = 1;
   lastAxisY = -1;
 
-  camHX = null; camHY = null;
+  cameraX = 0; cameraY = 0;
   for(const id in snapshots) delete snapshots[id];
   for(const id in renderCache) delete renderCache[id];
   foodBirth.clear();
@@ -950,19 +1014,18 @@ function startGame(){
   canvas.style.display="block";
   hud.style.display="block";
 
-  fitCanvas();
-  canvas.focus();
-
-  // мобильный UI: включаем только на тач-девайсах, ПК не трогаем
   useTouch = !!isTouchDevice;
   if(useTouch){
-    useMouse = false; // чтобы ПК-режимы не мешали
+    useMouse = false;
     touchUI.style.display = "block";
     touchUI.setAttribute("aria-hidden","false");
   } else {
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
   }
+
+  fitCanvas();
+  canvas.focus();
 
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
@@ -1023,7 +1086,6 @@ function startGame(){
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
     sendBoost(false);
 
-    // скрываем тач-ui когда игра закончилась
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
 
@@ -1039,7 +1101,7 @@ function startGame(){
    INPUT (ПК)
 ========================= */
 canvas.addEventListener("mousemove", e=>{
-  if(useTouch) return;     // моб не трогаем
+  if(useTouch) return;
   if(!useMouse) return;
   if(dead) return;
 
@@ -1054,15 +1116,14 @@ canvas.addEventListener("mousemove", e=>{
 });
 
 document.addEventListener("keydown", e=>{
-  if(useTouch) return; // моб не трогаем
-
+  if(useTouch) return;
   const k = (e.key || "").toLowerCase();
 
-  // M или Ь — переключение режима управления
+  // M или Ь
   if(k === "m" || k === "ь"){
     useMouse = !useMouse;
     keysDown.clear();
-    mouseTargetHeading = heading; // без рывка
+    mouseTargetHeading = heading;
     e.preventDefault?.();
   }
 });
@@ -1075,7 +1136,7 @@ function updateAxisOnPress(k){
 }
 
 document.addEventListener("keydown", e=>{
-  if(useTouch) return; // моб не трогаем
+  if(useTouch) return;
   if(dead) return;
 
   const k = normKey(e.key);
@@ -1097,7 +1158,7 @@ document.addEventListener("keydown", e=>{
 });
 
 document.addEventListener("keyup", e=>{
-  if(useTouch) return; // моб не трогаем
+  if(useTouch) return;
   const k = normKey(e.key);
 
   if(k === " " || k === "space" || e.code === "Space"){
@@ -1116,15 +1177,9 @@ window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
 /* =========================
-   INPUT (MOBILE): JOYSTICK + BUTTONS
+   INPUT (MOBILE): JOYSTICK + BOOST
 ========================= */
-const joy = {
-  active:false,
-  pid:null,
-  cx:0, cy:0,
-  radius:65,
-  x:0, y:0
-};
+const joy = { active:false, pid:null, radius:65, x:0, y:0 };
 
 function setKnob(dx, dy){
   joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -1135,7 +1190,7 @@ function joyReset(){
   joy.pid = null;
   joy.x = joy.y = 0;
   setKnob(0,0);
-  touchTargetHeading = heading; // без рывка
+  touchTargetHeading = heading;
 }
 
 function joyUpdateFromPointer(clientX, clientY){
@@ -1160,13 +1215,11 @@ function joyUpdateFromPointer(clientX, clientY){
 
   setKnob(dx, dy);
 
-  // если почти центр — не дергаем
   if(Math.abs(dx) + Math.abs(dy) < 2){
     touchTargetHeading = heading;
     return;
   }
 
-  // джойстик задаёт угол
   touchTargetHeading = Math.atan2(dy, dx);
 }
 
@@ -1194,7 +1247,6 @@ function joyEnd(e){
   joyReset();
   e?.preventDefault?.();
 }
-
 joyWrap.addEventListener("pointerup", joyEnd);
 joyWrap.addEventListener("pointercancel", joyEnd);
 joyWrap.addEventListener("lostpointercapture", joyEnd);
@@ -1207,28 +1259,6 @@ function bindHoldButton(btn, onDown, onUp){
   btn.addEventListener("lostpointercapture",(e)=>{ if(!useTouch) return; onUp(); e.preventDefault(); });
 }
 bindHoldButton(boostBtn, ()=>sendBoost(true), ()=>sendBoost(false));
-
-/* full screen */
-async function goFullscreen(){
-  // на iOS Safari полноценный Fullscreen может быть ограничен — всё равно не ломаемся
-  const el = document.documentElement;
-  try{
-    if(!document.fullscreenElement){
-      await el.requestFullscreen?.();
-    } else {
-      await document.exitFullscreen?.();
-    }
-  }catch(_){}
-
-  // попытка фикса ориентации (где поддерживается)
-  try{
-    if(screen?.orientation?.lock){
-      await screen.orientation.lock("landscape");
-    }
-  }catch(_){}
-  fitCanvas();
-}
-fsBtn.addEventListener("click", ()=>{ if(useTouch) goFullscreen(); });
 
 /* =========================
    START
