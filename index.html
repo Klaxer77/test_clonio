@@ -95,6 +95,14 @@
       pointer-events:auto;
       touch-action:none;
     }
+    #boostBtn{
+    background: radial-gradient(circle at 30% 30%, rgba(255,224,102,0.85), rgba(245,196,0,0.85)) !important;
+    color:#111 !important;
+    opacity:0.9;
+    -webkit-appearance: none;
+    appearance: none;
+    background-clip: padding-box;
+    }
     .touchBtn{
       width:150px;
       height:64px;
@@ -186,6 +194,9 @@ const CLIENT_SPEED = 4;
 const SERVER_TICK_SEC = 0.025;
 const SERVER_SPEED = 7;
 const SERVER_BOOST_MULT = 1.8;
+
+const TOUCH_GAIN = 5.2;      // было фактически ~9
+const TOUCH_TAU_MS = 34;    // мягче
 
 const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;
 const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC;
@@ -601,12 +612,16 @@ function applySteeringPointer(dtMs){
   const err = normAngle(target - heading);
   const maxVel = TURN_FAST;
 
+  const gain = useTouch ? TOUCH_GAIN : MOUSE_GAIN;
+  const tau  = useTouch ? TOUCH_TAU_MS : MOUSE_TAU_MS;
+
   let targetAngVel = 0;
   if(Math.abs(err) > MOUSE_DEADZONE_RAD){
-    targetAngVel = clamp(err * MOUSE_GAIN, -maxVel, +maxVel);
+  targetAngVel = clamp(err * gain, -maxVel, +maxVel);
   }
 
-  const k = 1 - Math.exp(-dtMs / MOUSE_TAU_MS);
+const k = 1 - Math.exp(-dtMs / tau);
+
   angVel = angVel + (targetAngVel - angVel) * k;
 
   heading += angVel * (dtMs / 1000);
