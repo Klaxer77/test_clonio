@@ -355,25 +355,22 @@ function fitCanvas(){
   VIEW_H = h;
 
   if(isTouchDevice){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
 
-    canvas.width  = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
+  canvas.width  = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
 
-    // координатная система = CSS-пиксели
-    const z = isTouchDevice ? (VIEW_ZOOM || 1) : 1;
-    ctx.setTransform(dpr * z, 0, 0, dpr * z, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-
-
-  } else {
-    canvas.width = w;
-    canvas.height = h;
-    ctx.setTransform(1,0,0,1,0,0);
-  }
+  // координатная система = CSS-пиксели
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.imageSmoothingEnabled = true;
+} else {
+  canvas.width = w;
+  canvas.height = h;
+  ctx.setTransform(1,0,0,1,0,0);
+}
 }
 window.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("resize", fitCanvas);
@@ -684,15 +681,23 @@ function updateCamera(renderMeSnake){
   if(!renderMeSnake || renderMeSnake.length === 0) return;
   const h = renderMeSnake[0];
   if(camHX === null){ camHX = h.x; camHY = h.y; }
+
   camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
   camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
-  cameraX = camHX - VIEW_W/2;
-  cameraY = camHY - VIEW_H/2;
+
+  // ВАЖНО: делим на VIEW_ZOOM, чтобы “камера была дальше”
+  cameraX = camHX - (VIEW_W / (2 * VIEW_ZOOM));
+  cameraY = camHY - (VIEW_H / (2 * VIEW_ZOOM));
 }
+
 
 /* =========================
    DRAW HELPERS
 ========================= */
+function sx(wx){ return (wx - cameraX) * VIEW_ZOOM + SEGMENT/2; }
+function sy(wy){ return (wy - cameraY) * VIEW_ZOOM + SEGMENT/2; }
+
+
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
 
@@ -777,7 +782,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
     ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
-    for(let i=1;i<s.length;i++) ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+    for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), s[i].y - cameraY + SEGMENT/2);
     ctx.stroke();
     ctx.restore();
   }
@@ -788,7 +793,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   ctx.lineJoin = "round";
   ctx.beginPath();
   ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
-  for(let i=1;i<s.length;i++) ctx.lineTo(s[i].x - cameraX + SEGMENT/2, s[i].y - cameraY + SEGMENT/2);
+  for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), s[i].y - cameraY + SEGMENT/2);
   ctx.stroke();
 
   const head = s[0];
@@ -953,12 +958,28 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
 
   // сетка
   ctx.strokeStyle="rgba(255,255,255,0.05)";
-  const gx0 = -((cameraX % GRID_STEP + GRID_STEP) % GRID_STEP);
-  const gy0 = -((cameraY % GRID_STEP + GRID_STEP) % GRID_STEP);
-  ctx.beginPath();
-  for(let x=gx0; x<VIEW_W; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,VIEW_H); }
-  for(let y=gy0; y<VIEW_H; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(VIEW_W,y); }
-  ctx.stroke();
+    const step = GRID_STEP;
+    const left = cameraX;
+    const top  = cameraY;
+    const right = cameraX + (VIEW_W / VIEW_ZOOM);
+    const bottom= cameraY + (VIEW_H / VIEW_ZOOM);
+
+    const x0 = Math.floor(left / step) * step;
+    const y0 = Math.floor(top  / step) * step;
+
+    ctx.beginPath();
+    for(let x=x0; x<=right; x+=step){
+    const X = sx(x);
+    ctx.moveTo(X, 0);
+    ctx.lineTo(X, VIEW_H);
+    }
+    for(let y=y0; y<=bottom; y+=step){
+    const Y = sy(y);
+    ctx.moveTo(0, Y);
+    ctx.lineTo(VIEW_W, Y);
+    }
+    ctx.stroke();
+
 
   // еда
   let corpseGlowBudget = lowDetail ? 0 : 120;
@@ -968,8 +989,9 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
     const mult = (typeof f.size === "number") ? f.size : 1;
     const baseR0 = (SEGMENT/4) * mult * Math.sqrt(SNAKE_SCALE);
 
-    const x = f.x - cameraX + SEGMENT/2;
-    const y = f.y - cameraY + SEGMENT/2;
+    const x = sx(f.x);
+    const y = sy(f.y);
+
 
     const isCorpse = (f.kind === "corpse");
     let alphaMul = 1.0;
@@ -986,7 +1008,7 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
       }
     }
 
-    const baseR = baseR0 * scaleMul;
+    const baseR = baseR0 * scaleMul * VIEW_ZOOM;
 
     ctx.save();
     if(isCorpse){
@@ -1171,8 +1193,8 @@ canvas.addEventListener("mousemove", e=>{
   const head = getMyHead();
   if(!head) return;
 
-  const mx = e.clientX + cameraX - head.x;
-  const my = e.clientY + cameraY - head.y;
+  const mx = (e.clientX / VIEW_ZOOM) + cameraX - head.x;
+  const my = (e.clientY / VIEW_ZOOM) + cameraY - head.y;
   if(Math.abs(mx) + Math.abs(my) < 0.001) return;
 
   mouseTargetHeading = Math.atan2(my, mx);
