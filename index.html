@@ -362,7 +362,10 @@ function fitCanvas(){
     canvas.height = Math.floor(h * dpr);
 
     // координатная система = CSS-пиксели
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const z = (isTouchDevice ? (VIEW_ZOOM || 1) : 1);
+    ctx.setTransform(dpr * z, 0, 0, dpr * z, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+
   } else {
     canvas.width = w;
     canvas.height = h;
@@ -1044,6 +1047,8 @@ function startGame(){
 
   // СКЕЙЛ: только для мобилки увеличиваем
   SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
+  const MOBILE_VIEW_ZOOM = 0.82; // 1 = как сейчас; меньше = дальше камера (визуально медленнее)
+  let VIEW_ZOOM = 1;
 
   dir = {x:1,y:0};
   wantDirUnit = {x:1,y:0};
@@ -1070,6 +1075,9 @@ function startGame(){
   hud.style.display="block";
 
   useTouch = !!isTouchDevice;
+  VIEW_ZOOM = isTouchDevice ? MOBILE_VIEW_ZOOM : 1;
+  fitCanvas(); // важно: после установки зума
+
   if(useTouch){
     useMouse = false;
     touchUI.style.display = "block";
