@@ -95,14 +95,24 @@
       pointer-events:auto;
       touch-action:none;
     }
-    #boostBtn{
-    background: radial-gradient(circle at 30% 30%, rgba(255,224,102,0.85), rgba(245,196,0,0.85)) !important;
-    color:#111 !important;
-    opacity:0.9;
-    -webkit-appearance: none;
-    appearance: none;
-    background-clip: padding-box;
+
+    /* ===== Boost button anti-select / anti-callout (iOS) ===== */
+    #boostBtn,
+    .boostBtn{
+      -webkit-user-select:none;
+      user-select:none;
+      -webkit-touch-callout:none;
+      -webkit-tap-highlight-color:transparent;
+      outline:none;
+      -webkit-appearance:none;
+      appearance:none;
+      caret-color:transparent;
     }
+    #boostBtn:focus,
+    #boostBtn:focus-visible{
+      outline:none;
+    }
+
     .touchBtn{
       width:150px;
       height:64px;
@@ -117,32 +127,42 @@
       user-select:none;
       -webkit-tap-highlight-color: transparent;
     }
+
     .boostBtn{
-    width:72px;
-    height:72px;
-    border-radius:999px;
+      width:72px;
+      height:72px;
+      border-radius:999px;
 
-    display:flex;
-    align-items:center;
-    justify-content:center;
+      display:flex;
+      align-items:center;
+      justify-content:center;
 
-    font-size:32px;
-    font-weight:700;
+      font-size:32px;
+      font-weight:700;
 
-    background: radial-gradient(circle at 30% 30%, #ffe066, #f5c400);
-    color:#111;
+      background: radial-gradient(circle at 30% 30%, #ffe066, #f5c400);
+      color:#111;
 
-    border:1px solid rgba(255,255,255,0.25);
-    box-shadow:
+      border:1px solid rgba(255,255,255,0.25);
+      box-shadow:
         0 10px 22px rgba(0,0,0,.35),
         inset 0 2px 4px rgba(255,255,255,.35);
 
-    user-select:none;
-    -webkit-tap-highlight-color: transparent;
+      -webkit-tap-highlight-color: transparent;
     }
+
+    /* делаем молнию не-текстом для тапа */
+    .boostBtn .icon{
+      display:block;
+      line-height:1;
+      pointer-events:none;
+      -webkit-user-select:none;
+      user-select:none;
+    }
+
     .boostBtn:active{
-    transform: scale(0.96);
-    box-shadow:
+      transform: scale(0.96);
+      box-shadow:
         0 6px 14px rgba(0,0,0,.35),
         inset 0 1px 3px rgba(255,255,255,.35);
     }
@@ -171,7 +191,9 @@
       </div>
     </div>
     <div id="btnWrap">
-      <button id="boostBtn" class="boostBtn">⚡</button>
+      <button id="boostBtn" class="boostBtn" aria-label="Ускорение">
+        <span class="icon" aria-hidden="true">⚡</span>
+      </button>
     </div>
   </div>
 
@@ -195,8 +217,8 @@ const SERVER_TICK_SEC = 0.025;
 const SERVER_SPEED = 7;
 const SERVER_BOOST_MULT = 1.8;
 
-const TOUCH_GAIN = 5.2;      // было фактически ~9
-const TOUCH_TAU_MS = 34;    // мягче
+const TOUCH_GAIN = 5.2;
+const TOUCH_TAU_MS = 34;
 
 const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;
 const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC;
@@ -251,11 +273,11 @@ function normAngle(a){
    SCALE (ПК не трогаем)
 ========================= */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_SNAKE_SCALE  = 0.60; // <-- тут можешь поднять/опустить под себя
+const MOBILE_SNAKE_SCALE  = 0.60;
 
-let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;   // будет переопределено на старте на мобилке
+let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-const MOBILE_VIEW_ZOOM = 0.82; // меньше = дальше камера
+const MOBILE_VIEW_ZOOM = 0.82;
 let VIEW_ZOOM = 1;
 
 /* =========================
@@ -339,9 +361,7 @@ function getCapHz(){
 
 /* =========================
    CANVAS SIZE (iOS visualViewport)
-   ПК не ломаем: обычный innerWidth/innerHeight
 ========================= */
-
 let VIEW_W = innerWidth;
 let VIEW_H = innerHeight;
 
@@ -355,29 +375,29 @@ function fitCanvas(){
   VIEW_H = h;
 
   if(isTouchDevice){
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-  canvas.style.width = w + "px";
-  canvas.style.height = h + "px";
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
 
-  canvas.width  = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
+    canvas.width  = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
 
-  // координатная система = CSS-пиксели
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.imageSmoothingEnabled = true;
-} else {
-  canvas.width = w;
-  canvas.height = h;
-  ctx.setTransform(1,0,0,1,0,0);
-}
+    // координатная система = CSS-пиксели
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.imageSmoothingEnabled = true;
+  } else {
+    canvas.width = w;
+    canvas.height = h;
+    ctx.setTransform(1,0,0,1,0,0);
+  }
 }
 window.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("scroll", fitCanvas);
 
 /* =========================
-   RENDER HELPERS (пересчитываем от SNAKE_SCALE)
+   RENDER HELPERS
 ========================= */
 function bodyWidth(){ return SEGMENT * 0.95 * SNAKE_SCALE; }
 function headRadius(){ return bodyWidth() * 0.50; }
@@ -620,10 +640,10 @@ function applySteeringPointer(dtMs){
 
   let targetAngVel = 0;
   if(Math.abs(err) > MOUSE_DEADZONE_RAD){
-  targetAngVel = clamp(err * gain, -maxVel, +maxVel);
+    targetAngVel = clamp(err * gain, -maxVel, +maxVel);
   }
 
-const k = 1 - Math.exp(-dtMs / tau);
+  const k = 1 - Math.exp(-dtMs / tau);
 
   angVel = angVel + (targetAngVel - angVel) * k;
 
@@ -685,18 +705,15 @@ function updateCamera(renderMeSnake){
   camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
   camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
 
-  // ВАЖНО: делим на VIEW_ZOOM, чтобы “камера была дальше”
   cameraX = camHX - (VIEW_W / (2 * VIEW_ZOOM));
   cameraY = camHY - (VIEW_H / (2 * VIEW_ZOOM));
 }
-
 
 /* =========================
    DRAW HELPERS
 ========================= */
 function sx(wx){ return (wx - cameraX) * VIEW_ZOOM + SEGMENT/2; }
 function sy(wy){ return (wy - cameraY) * VIEW_ZOOM + SEGMENT/2; }
-
 
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
@@ -764,7 +781,6 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
-  // толщины/радиусы тоже надо масштабировать, иначе будет странно выглядеть при VIEW_ZOOM
   const BW = bodyWidth() * VIEW_ZOOM;
   const HR = headRadius() * VIEW_ZOOM;
 
@@ -807,12 +823,11 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   if(isMe){
     look = { x: dir?.x ?? 1, y: dir?.y ?? 0 };
   } else {
-    const h = s[0], n = s[1];
-    look = { x: h.x - n.x, y: h.y - n.y };
+    const hh = s[0], nn = s[1];
+    look = { x: hh.x - nn.x, y: hh.y - nn.y };
   }
   drawSnakeEyes(s, look);
 }
-
 
 /* =========================
    KEYBOARD HELPERS
@@ -864,7 +879,6 @@ function draw(ts){
   gradient.addColorStop(1,"#111");
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,VIEW_W,VIEW_H);
-
 
   const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
   const interpOthers = Math.max(MIN_INTERP_MS, baseDelay);
@@ -960,28 +974,27 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
 
   // сетка
   ctx.strokeStyle="rgba(255,255,255,0.05)";
-    const step = GRID_STEP;
-    const left = cameraX;
-    const top  = cameraY;
-    const right = cameraX + (VIEW_W / VIEW_ZOOM);
-    const bottom= cameraY + (VIEW_H / VIEW_ZOOM);
+  const step = GRID_STEP;
+  const left = cameraX;
+  const top  = cameraY;
+  const right = cameraX + (VIEW_W / VIEW_ZOOM);
+  const bottom= cameraY + (VIEW_H / VIEW_ZOOM);
 
-    const x0 = Math.floor(left / step) * step;
-    const y0 = Math.floor(top  / step) * step;
+  const x0 = Math.floor(left / step) * step;
+  const y0 = Math.floor(top  / step) * step;
 
-    ctx.beginPath();
-    for(let x=x0; x<=right; x+=step){
+  ctx.beginPath();
+  for(let x=x0; x<=right; x+=step){
     const X = sx(x);
     ctx.moveTo(X, 0);
     ctx.lineTo(X, VIEW_H);
-    }
-    for(let y=y0; y<=bottom; y+=step){
+  }
+  for(let y=y0; y<=bottom; y+=step){
     const Y = sy(y);
     ctx.moveTo(0, Y);
     ctx.lineTo(VIEW_W, Y);
-    }
-    ctx.stroke();
-
+  }
+  ctx.stroke();
 
   // еда
   let corpseGlowBudget = lowDetail ? 0 : 120;
@@ -993,7 +1006,6 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
 
     const x = sx(f.x);
     const y = sy(f.y);
-
 
     const isCorpse = (f.kind === "corpse");
     let alphaMul = 1.0;
@@ -1041,11 +1053,11 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
   ctx.strokeStyle="red";
   ctx.lineWidth=4;
   ctx.strokeRect(
-  sx(0) - SEGMENT/2,
-  sy(0) - SEGMENT/2,
-  WORLD_W * VIEW_ZOOM,
-  WORLD_H * VIEW_ZOOM
-);
+    sx(0) - SEGMENT/2,
+    sy(0) - SEGMENT/2,
+    WORLD_W * VIEW_ZOOM,
+    WORLD_H * VIEW_ZOOM
+  );
 }
 
 /* =========================
@@ -1077,7 +1089,6 @@ function blendSnake(prev, next, k){
 function startGame(){
   dead = false;
 
-  // СКЕЙЛ: только для мобилки увеличиваем
   SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
 
   dir = {x:1,y:0};
