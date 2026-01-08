@@ -240,7 +240,7 @@ function normAngle(a){
    SCALE (ПК не трогаем)
 ========================= */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_SNAKE_SCALE  = 0.80; // <-- тут можешь поднять/опустить под себя
+const MOBILE_SNAKE_SCALE  = 0.60; // <-- тут можешь поднять/опустить под себя
 
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;   // будет переопределено на старте на мобилке
 let GRID_STEP = Math.round(SEGMENT * 2.4);
@@ -328,22 +328,31 @@ function getCapHz(){
    CANVAS SIZE (iOS visualViewport)
    ПК не ломаем: обычный innerWidth/innerHeight
 ========================= */
+
+let VIEW_W = innerWidth;
+let VIEW_H = innerHeight;
+
 function fitCanvas(){
   const vv = window.visualViewport;
 
   const w = vv ? Math.round(vv.width)  : innerWidth;
   const h = vv ? Math.round(vv.height) : innerHeight;
 
+  VIEW_W = w;
+  VIEW_H = h;
+
   if(isTouchDevice){
-    // на мобилке делаем чётко (DPR)
     const dpr = Math.max(1, window.devicePixelRatio || 1);
+
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
+
     canvas.width  = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0); // рисуем в CSS-пикселях
+
+    // координатная система = CSS-пиксели
+    ctx.setTransform(dpr,0,0,dpr,0,0);
   } else {
-    // ПК как было
     canvas.width = w;
     canvas.height = h;
     ctx.setTransform(1,0,0,1,0,0);
@@ -656,8 +665,8 @@ function updateCamera(renderMeSnake){
   if(camHX === null){ camHX = h.x; camHY = h.y; }
   camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
   camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
-  cameraX = camHX - canvas.width/2;
-  cameraY = camHY - canvas.height/2;
+  cameraX = camHX - VIEW_W/2;
+  cameraY = camHY - VIEW_H/2;
 }
 
 /* =========================
@@ -822,11 +831,12 @@ function draw(ts){
   updateFpsOnRenderedFrame(timeMs);
   cleanupSnapshots();
 
-  const gradient = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  const gradient = ctx.createLinearGradient(0,0,VIEW_W,VIEW_H);
   gradient.addColorStop(0,"#1a1a1a");
   gradient.addColorStop(1,"#111");
   ctx.fillStyle=gradient;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0,0,VIEW_W,VIEW_H);
+
 
   const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
   const interpOthers = Math.max(MIN_INTERP_MS, baseDelay);
@@ -925,8 +935,8 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
   const gx0 = -((cameraX % GRID_STEP + GRID_STEP) % GRID_STEP);
   const gy0 = -((cameraY % GRID_STEP + GRID_STEP) % GRID_STEP);
   ctx.beginPath();
-  for(let x=gx0; x<canvas.width; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); }
-  for(let y=gy0; y<canvas.height; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); }
+  for(let x=gx0; x<VIEW_W; x+=GRID_STEP){ ctx.moveTo(x,0); ctx.lineTo(x,VIEW_H); }
+  for(let y=gy0; y<VIEW_H; y+=GRID_STEP){ ctx.moveTo(0,y); ctx.lineTo(VIEW_W,y); }
   ctx.stroke();
 
   // еда
