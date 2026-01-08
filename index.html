@@ -712,13 +712,13 @@ function drawSnakeEyes(s, look){
   const lx = -fy;
   const ly = fx;
 
-  const cx = h.x - cameraX + SEGMENT/2;
-  const cy = h.y - cameraY + SEGMENT/2;
+  const cx = sx(h.x);
+  const cy = sy(h.y);
 
-  const HR = headRadius();
-  const EWR = eyeWhiteR();
-  const EPR = eyePupilR();
-  const PS  = pupilShift();
+  const HR  = headRadius() * VIEW_ZOOM;
+  const EWR = eyeWhiteR() * VIEW_ZOOM;
+  const EPR = eyePupilR() * VIEW_ZOOM;
+  const PS  = pupilShift() * VIEW_ZOOM;
 
   const side = HR * 0.55;
   const fwd  = HR * 0.20;
@@ -764,8 +764,9 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
 
-  const BW = bodyWidth();
-  const HR = headRadius();
+  // толщины/радиусы тоже надо масштабировать, иначе будет странно выглядеть при VIEW_ZOOM
+  const BW = bodyWidth() * VIEW_ZOOM;
+  const HR = headRadius() * VIEW_ZOOM;
 
   if(boost){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
@@ -781,8 +782,8 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
-    for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), s[i].y - cameraY + SEGMENT/2);
+    ctx.moveTo(sx(s[0].x), sy(s[0].y));
+    for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), sy(s[i].y));
     ctx.stroke();
     ctx.restore();
   }
@@ -792,14 +793,14 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(s[0].x - cameraX + SEGMENT/2, s[0].y - cameraY + SEGMENT/2);
-  for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), s[i].y - cameraY + SEGMENT/2);
+  ctx.moveTo(sx(s[0].x), sy(s[0].y));
+  for(let i=1;i<s.length;i++) ctx.lineTo(sx(s[i].x), sy(s[i].y));
   ctx.stroke();
 
   const head = s[0];
   ctx.fillStyle = color || "white";
   ctx.beginPath();
-  ctx.arc(head.x - cameraX + SEGMENT/2, head.y - cameraY + SEGMENT/2, HR, 0, Math.PI*2);
+  ctx.arc(sx(head.x), sy(head.y), HR, 0, Math.PI*2);
   ctx.fill();
 
   let look = null;
@@ -811,6 +812,7 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   }
   drawSnakeEyes(s, look);
 }
+
 
 /* =========================
    KEYBOARD HELPERS
@@ -1038,7 +1040,12 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
   // границы мира
   ctx.strokeStyle="red";
   ctx.lineWidth=4;
-  ctx.strokeRect(-cameraX, -cameraY, WORLD_W, WORLD_H);
+  ctx.strokeRect(
+  sx(0) - SEGMENT/2,
+  sy(0) - SEGMENT/2,
+  WORLD_W * VIEW_ZOOM,
+  WORLD_H * VIEW_ZOOM
+);
 }
 
 /* =========================
