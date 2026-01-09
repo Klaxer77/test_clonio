@@ -1,3 +1,4 @@
+<!-- index.html (FULL) — FIX: no jerk on food eat (length change) by padding shorter snakes on interp + smoothing -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -13,16 +14,8 @@
       color:white;
       height:100%;
     }
-
-    /* важно для iOS: чтобы не было скролла/зумов от жестов */
     body{ position:fixed; inset:0; }
-
-    canvas{
-      display:block;
-      outline:none;
-      touch-action:none;
-    }
-
+    canvas{ display:block; outline:none; touch-action:none; }
     #menu{
       position:fixed;inset:0;
       display:flex;align-items:center;justify-content:center;flex-direction:column;
@@ -32,36 +25,25 @@
     }
     button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
     button:hover{background:#7CFF7C;}
-
     .hud{
       position:fixed;left:12px;top:10px;z-index:25;
       font-size:14px;opacity:.85;user-select:none;pointer-events:none;
       text-shadow:0 1px 2px rgba(0,0,0,.6);
       line-height:1.35;white-space:pre;
     }
-
-    /* ===== MOBILE UI (НЕ ТРОГАЕТ ДЕСКТОП) ===== */
     #touchUI{
-      position:fixed;
-      inset:0;
-      z-index:20;
-      display:none;          /* включаем только на тач */
+      position:fixed; inset:0; z-index:20;
+      display:none;
       pointer-events:none;
       touch-action:none;
     }
-
     #joyWrap{
-      position:absolute;
-      left:16px;
-      bottom:18px;
-      width:120px;
-      height:120px;
-      pointer-events:auto;
-      touch-action:none;
+      position:absolute; left:16px; bottom:18px;
+      width:120px; height:120px;
+      pointer-events:auto; touch-action:none;
     }
     #joyBase{
-      width:100%;
-      height:100%;
+      width:100%; height:100%;
       border-radius:999px;
       background:rgba(255,255,255,0.10);
       border:1px solid rgba(255,255,255,0.18);
@@ -69,13 +51,9 @@
       position:relative;
     }
     #joyKnob{
-      position:absolute;
-      left:50%;
-      top:50%;
-      width:48px;
-      height:48px;
-      margin-left:-24px;
-      margin-top:-24px;
+      position:absolute; left:50%; top:50%;
+      width:48px; height:48px;
+      margin-left:-24px; margin-top:-24px;
       border-radius:999px;
       background:rgba(255,255,255,0.22);
       border:1px solid rgba(255,255,255,0.25);
@@ -83,92 +61,34 @@
       transform:translate(0,0);
       will-change:transform;
     }
-
-    /* справа оставили только ускорение */
     #btnWrap{
-      position:absolute;
-      right:18px;
-      bottom:28px;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-      pointer-events:auto;
-      touch-action:none;
+      position:absolute; right:18px; bottom:28px;
+      display:flex; flex-direction:column; gap:12px;
+      pointer-events:auto; touch-action:none;
     }
-
-    /* ===== Boost button anti-select / anti-callout (iOS) ===== */
-    #boostBtn,
-    .boostBtn{
-      -webkit-user-select:none;
-      user-select:none;
+    #boostBtn,.boostBtn{
+      -webkit-user-select:none; user-select:none;
       -webkit-touch-callout:none;
       -webkit-tap-highlight-color:transparent;
-      outline:none;
-      -webkit-appearance:none;
-      appearance:none;
+      outline:none; -webkit-appearance:none; appearance:none;
       caret-color:transparent;
     }
-    #boostBtn:focus,
-    #boostBtn:focus-visible{
-      outline:none;
-    }
-
-    .touchBtn{
-      width:150px;
-      height:64px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,0.18);
-      background:rgba(255,255,255,0.12);
-      color:#fff;
-      font-size:16px;
-      font-weight:600;
-      letter-spacing:.2px;
-      box-shadow:0 10px 20px rgba(0,0,0,.35);
-      user-select:none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
+    #boostBtn:focus,#boostBtn:focus-visible{ outline:none; }
     .boostBtn{
-      width:72px;
-      height:72px;
-      border-radius:999px;
-
-      display:flex;
-      align-items:center;
-      justify-content:center;
-
-      font-size:32px;
-      font-weight:700;
-
+      width:72px; height:72px; border-radius:999px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:32px; font-weight:700;
       background: radial-gradient(circle at 30% 30%, #ffe066, #f5c400);
       color:#111;
-
       border:1px solid rgba(255,255,255,0.25);
-      box-shadow:
-        0 10px 22px rgba(0,0,0,.35),
-        inset 0 2px 4px rgba(255,255,255,.35);
-
+      box-shadow: 0 10px 22px rgba(0,0,0,.35), inset 0 2px 4px rgba(255,255,255,.35);
       -webkit-tap-highlight-color: transparent;
     }
-
-    /* делаем молнию не-текстом для тапа */
-    .boostBtn .icon{
-      display:block;
-      line-height:1;
-      pointer-events:none;
-      -webkit-user-select:none;
-      user-select:none;
-    }
-
+    .boostBtn .icon{ display:block; line-height:1; pointer-events:none; user-select:none; }
     .boostBtn:active{
       transform: scale(0.96);
-      box-shadow:
-        0 6px 14px rgba(0,0,0,.35),
-        inset 0 1px 3px rgba(255,255,255,.35);
+      box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 3px rgba(255,255,255,.35);
     }
-
-    .touchBtn:active{ transform: translateY(1px); }
-
     @media (pointer:coarse){
       .hud{top:8px;left:10px;font-size:12px;opacity:.78;}
     }
@@ -183,12 +103,9 @@
   <div id="hud" class="hud" style="display:none"></div>
   <canvas id="game" tabindex="0"></canvas>
 
-  <!-- MOBILE CONTROLS (скрыто на ПК) -->
   <div id="touchUI" aria-hidden="true">
     <div id="joyWrap">
-      <div id="joyBase">
-        <div id="joyKnob"></div>
-      </div>
+      <div id="joyBase"><div id="joyKnob"></div></div>
     </div>
     <div id="btnWrap">
       <button id="boostBtn" class="boostBtn" aria-label="Ускорение">
@@ -198,43 +115,21 @@
   </div>
 
 <script>
-/*
-  ИЗМЕНЕНИЯ:
-  - Убрана кнопка "полный экран" (на iPhone это почти всегда не работает нормально).
-  - На мобилке игра сама занимает весь экран через visualViewport.
-  - Увеличен размер змейки ТОЛЬКО на тач-устройствах.
-  - ПК-версия по логике/управлению не меняется.
-*/
-
 const WORLD_W = 3000, WORLD_H = 3000;
 const SEGMENT = 30;
 const ROOM_ID = "room1";
 
 const CLIENT_SPEED = 4;
+const SEG_DIST = SEGMENT * 0.85;
 
-/* ===== server speed model (match server!) ===== */
-const SERVER_TICK_SEC = 0.025;
-const SERVER_SPEED = 7;
-const SERVER_BOOST_MULT = 1.8;
-
-const TOUCH_GAIN = 5.2;
-const TOUCH_TAU_MS = 34;
-
-const SPEED_BASE_PX_S  = SERVER_SPEED / SERVER_TICK_SEC;
-const SPEED_BOOST_PX_S = (SERVER_SPEED * SERVER_BOOST_MULT) / SERVER_TICK_SEC;
-
-let predDirUnit = {x:1, y:0};
-let ws=null, playerId=null, players={}, foods=[], cameraX=0, cameraY=0;
+let ws=null, playerId=null, foods=[], cameraX=0, cameraY=0;
 let dir = {x:1, y:0}, dead=false;
 
-/* режимы ввода */
-let useMouse = false;     // ПК: M / Ь
-let useTouch = false;     // моб: авто
+let useMouse = false;
+let useTouch = false;
 
 let serverBoosting = false;
 const keysDown = new Set();
-
-/* axis priority without key-repeat jitter */
 let lastAxisX = 1;
 let lastAxisY = -1;
 
@@ -244,7 +139,6 @@ const menu=document.getElementById("menu"),
       hud=document.getElementById("hud"),
       ctx=canvas.getContext("2d");
 
-/* mobile ui refs */
 const touchUI = document.getElementById("touchUI");
 const joyWrap = document.getElementById("joyWrap");
 const joyKnob = document.getElementById("joyKnob");
@@ -269,24 +163,19 @@ function normAngle(a){
   return a;
 }
 
-/* =========================
-   SCALE (ПК не трогаем)
-========================= */
+/* SCALE */
 const DESKTOP_SNAKE_SCALE = 1.35;
 const MOBILE_SNAKE_SCALE  = 0.60;
-
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
 const MOBILE_VIEW_ZOOM = 0.82;
 let VIEW_ZOOM = 1;
 
-/* =========================
-   FPS METER
-========================= */
-let fps = 60;
+/* FPS */
 let lastFpsTs = performance.now();
 let frames = 0;
 let lowDetail = false;
+let fps = 60;
 
 function updateFpsOnRenderedFrame(timeMs){
   frames++;
@@ -295,18 +184,14 @@ function updateFpsOnRenderedFrame(timeMs){
     fps = Math.round((frames * 1000) / dt);
     frames = 0;
     lastFpsTs = timeMs;
-
     lowDetail = fps < 45;
     GRID_STEP = Math.round(SEGMENT * (lowDetail ? 3.2 : 2.4));
   }
 }
 
-/* =========================
-   RTT ping/pong
-========================= */
+/* RTT */
 let rtt = 60;
 let rttTimer = null;
-
 function startRttPing(){
   if(rttTimer) clearInterval(rttTimer);
   rttTimer = setInterval(()=>{
@@ -315,75 +200,49 @@ function startRttPing(){
   }, 800);
 }
 
-/* =========================
-   ADAPTIVE FPS CAP + SNAP TIMING
-========================= */
+/* RAF cap */
 const TARGET_CAP = 75;
-const SERVER_TICK_MS = 25;
-const PLAYERS_SEND_EVERY = 1;
-const SNAP_INTERVAL_MS = SERVER_TICK_MS * PLAYERS_SEND_EVERY;
-const MIN_INTERP_MS = Math.max(55, Math.ceil(SNAP_INTERVAL_MS * 2.2));
-
 const rafMeter = { lastTs: null, samples: [], maxSamples: 90, hz: 60 };
-
 function updateRafHz(ts){
   if(rafMeter.lastTs == null){ rafMeter.lastTs = ts; return; }
   const dt = ts - rafMeter.lastTs;
   rafMeter.lastTs = ts;
   if(dt <= 0) return;
-
   const instHz = 1000 / dt;
   if(instHz < 10 || instHz > 400) return;
-
   rafMeter.samples.push(instHz);
   if(rafMeter.samples.length > rafMeter.maxSamples) rafMeter.samples.shift();
-
   const a = rafMeter.samples.slice().sort((x,y)=>x-y);
   const mid = a.length >> 1;
   const med = a.length ? (a.length % 2 ? a[mid] : (a[mid-1]+a[mid])/2) : 60;
-
   const snap = (v) => {
-    const presets = [50, 60, 75, 90, 100, 120, 144, 165, 180, 240];
-    let best = v, bestD = 1e9;
+    const presets = [50,60,75,90,100,120,144,165,180,240];
+    let best=v, bestD=1e9;
     for(const p of presets){
-      const d = Math.abs(v - p);
-      if(d < bestD){ bestD = d; best = p; }
+      const d = Math.abs(v-p);
+      if(d<bestD){ bestD=d; best=p; }
     }
     return (bestD <= 3.0) ? best : v;
   };
   rafMeter.hz = snap(med);
 }
-
 let capHz = 60;
-function getCapHz(){
-  return Math.min(rafMeter.hz || 60, TARGET_CAP);
-}
+function getCapHz(){ return Math.min(rafMeter.hz || 60, TARGET_CAP); }
 
-/* =========================
-   CANVAS SIZE (iOS visualViewport)
-========================= */
-let VIEW_W = innerWidth;
-let VIEW_H = innerHeight;
+/* CANVAS SIZE */
+let VIEW_W = innerWidth, VIEW_H = innerHeight;
 
 function fitCanvas(){
   const vv = window.visualViewport;
-
   const w = vv ? Math.round(vv.width)  : innerWidth;
   const h = vv ? Math.round(vv.height) : innerHeight;
-
-  VIEW_W = w;
-  VIEW_H = h;
-
+  VIEW_W = w; VIEW_H = h;
   if(isTouchDevice){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
-
     canvas.width  = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
-
-    // координатная система = CSS-пиксели
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.imageSmoothingEnabled = true;
   } else {
@@ -396,363 +255,51 @@ window.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("scroll", fitCanvas);
 
-/* =========================
-   RENDER HELPERS
-========================= */
+/* RENDER HELPERS */
 function bodyWidth(){ return SEGMENT * 0.95 * SNAKE_SCALE; }
 function headRadius(){ return bodyWidth() * 0.50; }
 function eyeWhiteR(){ return headRadius() * 0.38; }
 function eyePupilR(){ return eyeWhiteR() * 0.45; }
 function pupilShift(){ return eyeWhiteR() * 0.35; }
 
-/* =========================
-   RENDER SMOOTH (DT-AWARE)
-========================= */
-const renderCache = {};
-function smoothSnake(id, targetSnake, alpha){
-  if(!targetSnake || targetSnake.length === 0) return targetSnake;
-
-  const prev = renderCache[id];
-  if(!prev || prev.length === 0){
-    renderCache[id] = targetSnake.map(p => ({x:p.x, y:p.y}));
-    return renderCache[id];
-  }
-
-  const n = targetSnake.length;
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const tp = targetSnake[i];
-    const pp = prev[i] || prev[prev.length - 1] || tp;
-    out[i] = { x: lerp(pp.x, tp.x, alpha), y: lerp(pp.y, tp.y, alpha) };
-  }
-
-  renderCache[id] = out;
-  return out;
-}
-
-/* =========================
-   SNAPSHOTS (OTHERS)
-========================= */
-const snapshots = {};
-const SNAP_MAX = 18;
-
-function pushSnapshot(id, pl){
-  const t = performance.now();
-  const q = snapshots[id] || (snapshots[id] = []);
-  q.push({
-    t,
-    snake: (pl.snake || []).map(p => ({x:p.x, y:p.y})),
-    boost: !!pl.boost,
-    color: pl.color || "white"
-  });
-  while(q.length > SNAP_MAX) q.shift();
-}
-
-function cleanupSnapshots(){
-  for(const id in snapshots){
-    if(!players[id]) delete snapshots[id];
-  }
-}
-
-function sampleInterpSnake(id, renderTime){
-  const q = snapshots[id];
-  if(!q || q.length === 0) return null;
-  if(q.length === 1) return {snake: q[0].snake, boost:q[0].boost, color:q[0].color};
-
-  let a = null, b = null;
-  for(let i=0;i<q.length-1;i++){
-    if(q[i].t <= renderTime && renderTime <= q[i+1].t){
-      a = q[i]; b = q[i+1]; break;
-    }
-  }
-
-  if(!a || !b){
-    if(renderTime < q[0].t) return {snake:q[0].snake, boost:q[0].boost, color:q[0].color};
-    return {snake:q[q.length-1].snake, boost:q[q.length-1].boost, color:q[q.length-1].color};
-  }
-
-  const dt = (b.t - a.t);
-  const k = dt <= 1 ? 0 : clamp01((renderTime - a.t) / dt);
-
-  const n = Math.max(a.snake.length, b.snake.length);
-  if(n === 0) return {snake:[], boost:b.boost, color:b.color};
-
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const pa = a.snake[i] || a.snake[a.snake.length-1];
-    const pb = b.snake[i] || b.snake[b.snake.length-1];
-    out[i] = {x: lerp(pa.x, pb.x, k), y: lerp(pa.y, pb.y, k)};
-  }
-
-  return {snake: out, boost: b.boost, color: b.color};
-}
-
-/* =========================
-   ME: LOCAL PREDICTION
-========================= */
-let meBaseSnake = null;
-let meBaseHead  = null;
-let mePredHead  = null;
-let meLastPredTs = null;
-let meBaseBoost = false;
-
-function getMyHead(){
-  if(mePredHead) return mePredHead;
-  if(meBaseHead) return meBaseHead;
-  const me = players[playerId];
-  if(me?.snake?.[0]) return me.snake[0];
-  return null;
-}
-
-/* =========================
-   FOOD SPAWN ANIM (light)
-========================= */
-const foodBirth = new Map();
-const FOOD_POP_MS = 380;
-
-function foodKey(f){
-  const x = (f && typeof f.x === "number") ? f.x : 0;
-  const y = (f && typeof f.y === "number") ? f.y : 0;
-  const k = f?.kind || "";
-  const c = f?.color || "";
-  const s = (typeof f?.size === "number") ? f.size : 1;
-  return `${x}|${y}|${k}|${c}|${s}`;
-}
-
-function markFoodBirths(newFoods, timeMs){
-  for(const f of (newFoods || [])){
-    if(f?.kind !== "corpse") continue;
-    const key = foodKey(f);
-    if(!foodBirth.has(key)) foodBirth.set(key, timeMs);
-  }
-
-  if(!markFoodBirths._nextClean) markFoodBirths._nextClean = timeMs + 2000;
-  if(timeMs < markFoodBirths._nextClean) return;
-  markFoodBirths._nextClean = timeMs + 2000;
-
-  const cutoff = timeMs - 8000;
-  for(const [k, born] of foodBirth.entries()){
-    if(born < cutoff) foodBirth.delete(k);
-  }
-}
-
-function easeOutCubic(t){
-  t = Math.max(0, Math.min(1, t));
-  return 1 - Math.pow(1 - t, 3);
-}
-
-/* =========================
-   CONTROL + STEERING
-========================= */
-let lastSent = 0;
-let lastDirSent = {x:1, y:0};
-let wantDirUnit = {x:1, y:0};
-
-const SEND_EPS2 = 0.00025;
-const SEND_MIN_MS = 20;
-const SEND_IDLE_MS = 90;
-
-function sendDirection(nx, ny){
-  if(!ws) return;
-  if(dead) return;
-  if(ws.readyState !== 1) return;
-
-  const now = performance.now();
-  const dx = nx - lastDirSent.x;
-  const dy = ny - lastDirSent.y;
-  const changed = (dx*dx + dy*dy) > SEND_EPS2;
-
-  if(!changed && (now - lastSent) < SEND_IDLE_MS) return;
-  if((now - lastSent) < SEND_MIN_MS) return;
-
-  lastSent = now;
-  lastDirSent = {x:nx, y:ny};
-  ws.send(JSON.stringify({direction: {x: nx, y: ny}}));
-}
-
-function setDirUnit(nx, ny){
-  const l = Math.hypot(nx, ny) || 1;
-  nx /= l; ny /= l;
-  wantDirUnit = {x:nx, y:ny};
-  dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
-  sendDirection(nx, ny);
-}
-
-let heading = 0;       // radians
-let angVel = 0;        // rad/s
-
-// клавиатура-руль (ПК)
-const TURN_BASE = 3.6;
-const TURN_FAST = 5.2;
-const TURN_SLOW = 2.2;
-const TURN_TAU_MS = 35;
-const TURN_STOP_TAU_MS = 55;
-
-// мышь/тач (руль)
-const MOUSE_GAIN = 9.0;
-const MOUSE_TAU_MS = 22;
-const MOUSE_DEADZONE_RAD = 0.010;
-
-let mouseTargetHeading = null;
-let touchTargetHeading = null;
-
-function initHeadingFromVector(v){
-  heading = Math.atan2(v.y, v.x);
-  angVel = 0;
-  mouseTargetHeading = heading;
-  touchTargetHeading = heading;
-}
-
-function applySteeringKeyboard(dtMs){
-  const left  = keysDown.has("a");
-  const right = keysDown.has("d");
-  const fast  = keysDown.has("w");
-  const slow  = keysDown.has("s");
-
-  let turn = 0;
-  if(left && !right) turn = -1;
-  else if(right && !left) turn = 1;
-  else if(left && right) turn = lastAxisX;
-
-  let turnRate = TURN_BASE;
-  if(fast && !slow) turnRate = TURN_FAST;
-  if(slow && !fast) turnRate = TURN_SLOW;
-
-  const targetAngVel = turn * turnRate;
-
-  const tau = (turn !== 0) ? TURN_TAU_MS : TURN_STOP_TAU_MS;
-  const k = 1 - Math.exp(-dtMs / tau);
-  angVel = angVel + (targetAngVel - angVel) * k;
-
-  heading += angVel * (dtMs / 1000);
-  setDirUnit(Math.cos(heading), Math.sin(heading));
-}
-
-function applySteeringPointer(dtMs){
-  const target = useTouch ? touchTargetHeading : mouseTargetHeading;
-  if(target == null) return;
-
-  const err = normAngle(target - heading);
-  const maxVel = TURN_FAST;
-
-  const gain = useTouch ? TOUCH_GAIN : MOUSE_GAIN;
-  const tau  = useTouch ? TOUCH_TAU_MS : MOUSE_TAU_MS;
-
-  let targetAngVel = 0;
-  if(Math.abs(err) > MOUSE_DEADZONE_RAD){
-    targetAngVel = clamp(err * gain, -maxVel, +maxVel);
-  }
-
-  const k = 1 - Math.exp(-dtMs / tau);
-
-  angVel = angVel + (targetAngVel - angVel) * k;
-
-  heading += angVel * (dtMs / 1000);
-  setDirUnit(Math.cos(heading), Math.sin(heading));
-}
-
-function applySteering(dtMs){
-  if(!ws || ws.readyState !== 1) return;
-  if(dead) return;
-
-  if(useTouch) applySteeringPointer(dtMs);
-  else if(useMouse) applySteeringPointer(dtMs);
-  else applySteeringKeyboard(dtMs);
-}
-
-/* heartbeat */
-let inputTimer = null;
-let lastInputTs = null;
-
-function startInputHeartbeat(){
-  if(inputTimer) clearInterval(inputTimer);
-  lastInputTs = performance.now();
-
-  inputTimer = setInterval(()=>{
-    if(!ws || ws.readyState !== 1) return;
-    if(dead) return;
-
-    const now = performance.now();
-    let dt = now - lastInputTs;
-    lastInputTs = now;
-
-    if(dt < 1) dt = 1;
-    if(dt > 40) dt = 40;
-
-    applySteering(dt);
-  }, 16);
-}
-
-function sendBoost(state){
-  if(!ws) return;
-  if(ws.readyState !== 1) return;
-  if(state === serverBoosting) return;
-  serverBoosting = state;
-  ws.send(JSON.stringify({boost: state}));
-}
-
-/* =========================
-   CAMERA
-========================= */
+/* CAMERA */
 let camHX = null, camHY = null;
 const CAM_SMOOTH = 0.18;
-
 function updateCamera(renderMeSnake){
   if(!renderMeSnake || renderMeSnake.length === 0) return;
   const h = renderMeSnake[0];
   if(camHX === null){ camHX = h.x; camHY = h.y; }
-
   camHX = camHX + (h.x - camHX) * CAM_SMOOTH;
   camHY = camHY + (h.y - camHY) * CAM_SMOOTH;
-
   cameraX = camHX - (VIEW_W / (2 * VIEW_ZOOM));
   cameraY = camHY - (VIEW_H / (2 * VIEW_ZOOM));
 }
-
-/* =========================
-   DRAW HELPERS
-========================= */
 function sx(wx){ return (wx - cameraX) * VIEW_ZOOM + SEGMENT/2; }
 function sy(wy){ return (wy - cameraY) * VIEW_ZOOM + SEGMENT/2; }
 
+/* EYES + RIBBON */
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
-
-  const h = s[0];
-  const n = s[1];
-
-  let fx = h.x - n.x;
-  let fy = h.y - n.y;
+  const h = s[0], n = s[1];
+  let fx = h.x - n.x, fy = h.y - n.y;
   const fl = Math.hypot(fx, fy) || 1;
-  fx /= fl; fy /= fl;
-
-  const lx = -fy;
-  const ly = fx;
-
-  const cx = sx(h.x);
-  const cy = sy(h.y);
-
+  fx/=fl; fy/=fl;
+  const lx = -fy, ly = fx;
+  const cx = sx(h.x), cy = sy(h.y);
   const HR  = headRadius() * VIEW_ZOOM;
   const EWR = eyeWhiteR() * VIEW_ZOOM;
   const EPR = eyePupilR() * VIEW_ZOOM;
   const PS  = pupilShift() * VIEW_ZOOM;
-
-  const side = HR * 0.55;
-  const fwd  = HR * 0.20;
-
+  const side = HR * 0.55, fwd = HR * 0.20;
   const ex1 = cx + lx*side + fx*fwd;
   const ey1 = cy + ly*side + fy*fwd;
   const ex2 = cx - lx*side + fx*fwd;
   const ey2 = cy - ly*side + fy*fwd;
 
-  let dx = look?.x ?? fx;
-  let dy = look?.y ?? fy;
-  const dl = Math.hypot(dx, dy) || 1;
-  dx /= dl; dy /= dl;
-
+  let dx = look?.x ?? fx, dy = look?.y ?? fy;
+  const dl = Math.hypot(dx, dy) || 1; dx/=dl; dy/=dl;
   const lookF = clamp01(dx*fx + dy*fy);
   const lookL = clamp01(dx*lx + dy*ly);
-
   const pxShiftX = fx*(lookF*PS) + lx*(lookL*PS);
   const pxShiftY = fy*(lookF*PS) + ly*(lookL*PS);
 
@@ -760,7 +307,6 @@ function drawSnakeEyes(s, look){
   ctx.fillStyle = "white";
   ctx.beginPath(); ctx.arc(ex1, ey1, EWR, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(ex2, ey2, EWR, 0, Math.PI*2); ctx.fill();
-
   ctx.fillStyle = "black";
   ctx.beginPath(); ctx.arc(ex1 + pxShiftX, ey1 + pxShiftY, EPR, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(ex2 + pxShiftX, ey2 + pxShiftY, EPR, 0, Math.PI*2); ctx.fill();
@@ -778,19 +324,15 @@ function decimate(points, step){
 function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   const base = renderSnake || [];
   if(base.length < 2) return;
-
   const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
-
   const BW = bodyWidth() * VIEW_ZOOM;
   const HR = headRadius() * VIEW_ZOOM;
 
   if(boost){
     const pulse1 = 0.5 + 0.5*Math.sin(timeMs * 0.022);
     const pulse2 = 0.5 + 0.5*Math.sin(timeMs * 0.017 + 1.2);
-
     const glowAlpha = lowDetail ? 0.10 : (0.16 + 0.10*pulse1);
     const glowW = BW * ((isMe ? 2.10 : 1.95) + 0.45*pulse2);
-
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     ctx.strokeStyle = `rgba(255,255,255,${glowAlpha})`;
@@ -829,9 +371,139 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   drawSnakeEyes(s, look);
 }
 
-/* =========================
-   KEYBOARD HELPERS
-========================= */
+/* ====== remote players ====== */
+const remote = {};
+const REMOTE_PATH_MAX = 1400;
+
+function buildSnakeFromPath(path, lengthSegments){
+  const n = Math.max(1, lengthSegments|0);
+  if(!path || path.length === 0) return [{x:0,y:0}];
+
+  const out = [];
+  out.push({x: path[0].x, y: path[0].y});
+  if(n === 1) return out;
+
+  let want = 0;
+  let acc = 0;
+
+  for(let i=0;i<path.length-1 && out.length < n;i++){
+    const a = path[i];
+    const b = path[i+1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const segLen = Math.hypot(dx, dy);
+    if(segLen < 1e-6) continue;
+
+    while(out.length < n && (acc + segLen) >= (want + SEG_DIST)){
+      want += SEG_DIST;
+      const t = (want - acc) / segLen;
+      out.push({ x: a.x + dx*t, y: a.y + dy*t });
+    }
+    acc += segLen;
+  }
+
+  const last = out[out.length-1];
+  while(out.length < n) out.push({x:last.x, y:last.y});
+  return out;
+}
+
+function snakePointsFromFlatBody(bodyFlat){
+  const out = [];
+  if(!Array.isArray(bodyFlat)) return out;
+  for(let i=0;i<bodyFlat.length;i+=2){
+    out.push({ x: +bodyFlat[i], y: +bodyFlat[i+1] });
+  }
+  return out;
+}
+
+/* ===== LENGTH-SAFE HELPERS (main fix) ===== */
+function padToLen(snake, n){
+  if(!snake) return snake;
+  const m = snake.length|0;
+  if(m >= n) return snake;
+  const out = snake.slice();
+  const last = out.length ? out[out.length-1] : {x:0,y:0};
+  while(out.length < n) out.push({x:last.x, y:last.y});
+  return out;
+}
+
+/* ===== render-in-the-past interpolation ===== */
+const INTERP_DELAY_MS = 160;
+const SNAP_MAX = 12;
+
+function pushSnap(r, snake, timeMs){
+  if(!snake || snake.length < 2) return;
+  if(!r.snaps) r.snaps = [];
+  r.snaps.push({
+    t: timeMs,
+    snake: snake.map(p => ({x:p.x, y:p.y})),
+    boost: !!r.boost,
+    color: r.color || "white",
+  });
+  if(r.snaps.length > SNAP_MAX) r.snaps.shift();
+}
+
+function interpSnakeFromSnaps(snaps, renderTime){
+  if(!snaps || snaps.length === 0) return null;
+  if(snaps.length === 1) return snaps[0].snake;
+
+  if(renderTime <= snaps[0].t) return snaps[0].snake;
+  const last = snaps[snaps.length - 1];
+  if(renderTime >= last.t) return last.snake;
+
+  let i = snaps.length - 2;
+  while(i >= 0 && snaps[i].t > renderTime) i--;
+  i = Math.max(0, i);
+
+  const a = snaps[i];
+  const b = snaps[i + 1] || a;
+  const span = Math.max(1, b.t - a.t);
+  const k = Math.max(0, Math.min(1, (renderTime - a.t) / span));
+
+  let sa = a.snake, sb = b.snake;
+  if(!sa || !sb) return sa || sb || null;
+
+  // KEY FIX: interpolate in max length, pad the shorter by repeating tail
+  const n = Math.max(sa.length, sb.length);
+  sa = padToLen(sa, n);
+  sb = padToLen(sb, n);
+
+  const out = new Array(n);
+  for(let j=0;j<n;j++){
+    out[j] = { x: lerp(sa[j].x, sb[j].x, k), y: lerp(sa[j].y, sb[j].y, k) };
+  }
+  return out;
+}
+
+/* ===== length-safe smoothing (main fix) ===== */
+const renderCache = {};
+function smoothSnake(id, targetSnake, alpha){
+  if(!targetSnake || targetSnake.length === 0) return targetSnake;
+
+  let prev = renderCache[id];
+
+  // if prev missing, init
+  if(!prev || prev.length === 0){
+    renderCache[id] = targetSnake.map(p => ({x:p.x, y:p.y}));
+    return renderCache[id];
+  }
+
+  // KEY FIX: if lengths differ, pad the shorter (do not reset hard)
+  const n = Math.max(prev.length, targetSnake.length);
+  prev = padToLen(prev, n);
+  const tgt = padToLen(targetSnake, n);
+
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    const tp = tgt[i];
+    const pp = prev[i] || tp;
+    out[i] = { x: lerp(pp.x, tp.x, alpha), y: lerp(pp.y, tp.y, alpha) };
+  }
+  renderCache[id] = out;
+  return out;
+}
+
+/* INPUT + STEERING */
 function normKey(k){
   k = (k || "").toLowerCase();
   if(k === "ц") return "w";
@@ -841,9 +513,176 @@ function normKey(k){
   return k;
 }
 
-/* =========================
-   DRAW LOOP
-========================= */
+let lastSent = 0;
+let lastDirSent = {x:1, y:0};
+let wantDirUnit = {x:1, y:0};
+
+const SEND_EPS2 = 0.00025;
+const SEND_MIN_MS = 20;
+const SEND_IDLE_MS = 90;
+
+function sendDirection(nx, ny){
+  if(!ws) return;
+  if(dead) return;
+  if(ws.readyState !== 1) return;
+
+  const now = performance.now();
+  const dx = nx - lastDirSent.x;
+  const dy = ny - lastDirSent.y;
+  const changed = (dx*dx + dy*dy) > SEND_EPS2;
+
+  if(!changed && (now - lastSent) < SEND_IDLE_MS) return;
+  if((now - lastSent) < SEND_MIN_MS) return;
+
+  lastSent = now;
+  lastDirSent = {x:nx, y:ny};
+  ws.send(JSON.stringify({direction: {x: nx, y: ny}}));
+}
+
+function setDirUnit(nx, ny){
+  const l = Math.hypot(nx, ny) || 1;
+  nx /= l; ny /= l;
+  wantDirUnit = {x:nx, y:ny};
+  dir = {x: nx*CLIENT_SPEED, y: ny*CLIENT_SPEED};
+  sendDirection(nx, ny);
+}
+
+let heading = 0;
+let angVel = 0;
+
+const TURN_BASE = 3.6;
+const TURN_FAST = 5.2;
+const TURN_SLOW = 2.2;
+const TURN_TAU_MS = 35;
+const TURN_STOP_TAU_MS = 55;
+
+const MOUSE_GAIN = 9.0;
+const MOUSE_TAU_MS = 22;
+const MOUSE_DEADZONE_RAD = 0.010;
+
+const TOUCH_GAIN = 5.2;
+const TOUCH_TAU_MS = 34;
+
+let mouseTargetHeading = null;
+let touchTargetHeading = null;
+
+function initHeadingFromVector(v){
+  heading = Math.atan2(v.y, v.x);
+  angVel = 0;
+  mouseTargetHeading = heading;
+  touchTargetHeading = heading;
+}
+
+function applySteeringKeyboard(dtMs){
+  const left  = keysDown.has("a");
+  const right = keysDown.has("d");
+  const fast  = keysDown.has("w");
+  const slow  = keysDown.has("s");
+
+  let turn = 0;
+  if(left && !right) turn = -1;
+  else if(right && !left) turn = 1;
+  else if(left && right) turn = lastAxisX;
+
+  let turnRate = TURN_BASE;
+  if(fast && !slow) turnRate = TURN_FAST;
+  if(slow && !fast) turnRate = TURN_SLOW;
+
+  const targetAngVel = turn * turnRate;
+  const tau = (turn !== 0) ? TURN_TAU_MS : TURN_STOP_TAU_MS;
+  const k = 1 - Math.exp(-dtMs / tau);
+  angVel = angVel + (targetAngVel - angVel) * k;
+
+  heading += angVel * (dtMs / 1000);
+  setDirUnit(Math.cos(heading), Math.sin(heading));
+}
+
+function applySteeringPointer(dtMs){
+  const target = useTouch ? touchTargetHeading : mouseTargetHeading;
+  if(target == null) return;
+
+  const err = normAngle(target - heading);
+  const maxVel = TURN_FAST;
+
+  const gain = useTouch ? TOUCH_GAIN : MOUSE_GAIN;
+  const tau  = useTouch ? TOUCH_TAU_MS : MOUSE_TAU_MS;
+
+  let targetAngVel = 0;
+  if(Math.abs(err) > MOUSE_DEADZONE_RAD){
+    targetAngVel = clamp(err * gain, -maxVel, +maxVel);
+  }
+
+  const k = 1 - Math.exp(-dtMs / tau);
+  angVel = angVel + (targetAngVel - angVel) * k;
+  heading += angVel * (dtMs / 1000);
+  setDirUnit(Math.cos(heading), Math.sin(heading));
+}
+
+function applySteering(dtMs){
+  if(!ws || ws.readyState !== 1) return;
+  if(dead) return;
+  if(useTouch) applySteeringPointer(dtMs);
+  else if(useMouse) applySteeringPointer(dtMs);
+  else applySteeringKeyboard(dtMs);
+}
+
+let inputTimer = null;
+let lastInputTs = null;
+function startInputHeartbeat(){
+  if(inputTimer) clearInterval(inputTimer);
+  lastInputTs = performance.now();
+  inputTimer = setInterval(()=>{
+    if(!ws || ws.readyState !== 1) return;
+    if(dead) return;
+    const now = performance.now();
+    let dt = now - lastInputTs;
+    lastInputTs = now;
+    if(dt < 1) dt = 1;
+    if(dt > 40) dt = 40;
+    applySteering(dt);
+  }, 16);
+}
+
+function sendBoost(state){
+  if(!ws) return;
+  if(ws.readyState !== 1) return;
+  if(state === serverBoosting) return;
+  serverBoosting = state;
+  ws.send(JSON.stringify({boost: state}));
+}
+
+/* FOOD pop */
+const foodBirth = new Map();
+const FOOD_POP_MS = 380;
+
+function foodKey(f){
+  const x = (f && typeof f.x === "number") ? f.x : 0;
+  const y = (f && typeof f.y === "number") ? f.y : 0;
+  const k = f?.kind || "";
+  const c = f?.color || "";
+  const s = (typeof f?.size === "number") ? f.size : 1;
+  return `${x}|${y}|${k}|${c}|${s}`;
+}
+function markFoodBirths(newFoods, timeMs){
+  for(const f of (newFoods || [])){
+    if(f?.kind !== "corpse") continue;
+    const key = foodKey(f);
+    if(!foodBirth.has(key)) foodBirth.set(key, timeMs);
+  }
+  if(!markFoodBirths._nextClean) markFoodBirths._nextClean = timeMs + 2000;
+  if(timeMs < markFoodBirths._nextClean) return;
+  markFoodBirths._nextClean = timeMs + 2000;
+  const cutoff = timeMs - 8000;
+  for(const [k, born] of foodBirth.entries()){
+    if(born < cutoff) foodBirth.delete(k);
+  }
+}
+function easeOutCubic(t){
+  t = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/* DRAW LOOP */
 function draw(ts){
   requestAnimationFrame(draw);
   if(canvas.style.display==="none") return;
@@ -858,13 +697,10 @@ function draw(ts){
     draw._lastRafTs = ts;
     draw._acc = 0;
   }
-
   let dt = ts - draw._lastRafTs;
   draw._lastRafTs = ts;
-
   if(dt > 120) dt = 120;
   draw._acc += dt;
-
   if(draw._acc < stepMs) return;
   draw._acc -= stepMs;
 
@@ -872,7 +708,6 @@ function draw(ts){
   const timeMs = ts;
 
   updateFpsOnRenderedFrame(timeMs);
-  cleanupSnapshots();
 
   const gradient = ctx.createLinearGradient(0,0,VIEW_W,VIEW_H);
   gradient.addColorStop(0,"#1a1a1a");
@@ -880,106 +715,51 @@ function draw(ts){
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,VIEW_W,VIEW_H);
 
-  const baseDelay = Math.min(120, Math.max(20, rtt * 0.35));
-  const interpOthers = Math.max(MIN_INTERP_MS, baseDelay);
-
   const renderPlayers = {};
+  const renderTime = timeMs - INTERP_DELAY_MS;
 
-  /* ===== ME: prediction ===== */
-  if(players[playerId] && meBaseSnake && meBaseHead && mePredHead){
-    if(meLastPredTs == null) meLastPredTs = timeMs;
-    let dtMs = timeMs - meLastPredTs;
-    meLastPredTs = timeMs;
-    if(dtMs > 60) dtMs = 60;
-
-    const spd = (meBaseBoost ? SPEED_BOOST_PX_S : SPEED_BASE_PX_S);
-    const ds = spd * (dtMs / 1000);
-
-    const ux = wantDirUnit?.x ?? 1;
-    const uy = wantDirUnit?.y ?? 0;
-
-    const dot = predDirUnit.x*ux + predDirUnit.y*uy;
-    if(dot < 0.25){
-      predDirUnit.x = ux;
-      predDirUnit.y = uy;
-    } else {
-      const turnAlpha = 1 - Math.exp(-dtMs / 32);
-      predDirUnit.x = predDirUnit.x + (ux - predDirUnit.x) * turnAlpha;
-      predDirUnit.y = predDirUnit.y + (uy - predDirUnit.y) * turnAlpha;
+  const meR = remote[playerId];
+  if(meR && meR.snaps && meR.snaps.length){
+    const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
+    if(meI && meI.length){
+      const alphaMe = 1 - Math.exp(-dtFrame / 35);
+      const smoothMe = smoothSnake(playerId, meI, alphaMe);
+      renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
     }
-
-    const pl = Math.hypot(predDirUnit.x, predDirUnit.y) || 1;
-    predDirUnit.x /= pl; predDirUnit.y /= pl;
-
-    mePredHead.x += predDirUnit.x * ds;
-    mePredHead.y += predDirUnit.y * ds;
-
-    const dx = mePredHead.x - meBaseHead.x;
-    const dy = mePredHead.y - meBaseHead.y;
-    const maxLead = 95;
-    const dd = Math.hypot(dx, dy);
-    if(dd > maxLead){
-      const k = maxLead / dd;
-      mePredHead.x = meBaseHead.x + dx * k;
-      mePredHead.y = meBaseHead.y + dy * k;
-    }
-
-    const offX = mePredHead.x - meBaseHead.x;
-    const offY = mePredHead.y - meBaseHead.y;
-
-    const n = meBaseSnake.length;
-    const predSnake = new Array(n);
-
-    const falloffLen = 6;
-    for(let i=0;i<n;i++){
-      const t = i / falloffLen;
-      const w = (t >= 1) ? 0 : (1 - t) * (1 - t);
-      const p = meBaseSnake[i];
-      predSnake[i] = { x: p.x + offX * w, y: p.y + offY * w };
-    }
-
-    const alphaMe = 1 - Math.exp(-dtFrame / 30);
-    const smoothMe = smoothSnake(playerId, predSnake, alphaMe);
-
-    renderPlayers[playerId] = {
-      snake: smoothMe,
-      boost: meBaseBoost,
-      color: players[playerId].color || "white"
-    };
   }
 
-  /* ===== OTHERS ===== */
-  const renderTime = timeMs - interpOthers;
-  for(const id in players){
+  for(const id in remote){
     if(id === playerId) continue;
-    const sp = sampleInterpSnake(id, renderTime);
-    if(!sp) continue;
+    const r = remote[id];
+    if(!r || !r.snaps || !r.snaps.length) continue;
 
-    const n = sp.snake?.length || 0;
-    const tau = Math.min(180, 110 + n * 0.10);
+    const sI = interpSnakeFromSnaps(r.snaps, renderTime);
+    if(!sI || sI.length < 2) continue;
+
+    const n = sI.length;
+    const tau = Math.min(260, 180 + n * 0.18);
     const alpha = 1 - Math.exp(-dtFrame / tau);
+    const smooth = smoothSnake(id, sI, alpha);
 
-    const smooth = smoothSnake(id, sp.snake, alpha);
-    renderPlayers[id] = { snake: smooth, boost: sp.boost, color: sp.color };
+    renderPlayers[id] = { snake: smooth, boost: !!r.boost, color: r.color || "white" };
   }
 
   const meRender = renderPlayers[playerId]?.snake || null;
   const boostActive = !!renderPlayers[playerId]?.boost;
 
   hud.textContent =
-`Режим: ${useTouch ? "моб (джойстик)" : (useMouse ? "мышь" : "клава (A/D рулит, W быстрее, S точнее)")} | Игроков: ${Object.keys(players).length} | FPS: ${fps}
-Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${boostActive ? "вкл" : "выкл"} | M/Ь: режим (ПК)`;
+`Режим: ${useTouch ? "моб (джойстик)" : (useMouse ? "мышь" : "клава (A/D рулит, W быстрее, S точнее)")}
+FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${boostActive ? "вкл" : "выкл"} | M/Ь: режим (ПК)`;
 
   updateCamera(meRender);
 
-  // сетка
+  // grid
   ctx.strokeStyle="rgba(255,255,255,0.05)";
   const step = GRID_STEP;
   const left = cameraX;
   const top  = cameraY;
   const right = cameraX + (VIEW_W / VIEW_ZOOM);
   const bottom= cameraY + (VIEW_H / VIEW_ZOOM);
-
   const x0 = Math.floor(left / step) * step;
   const y0 = Math.floor(top  / step) * step;
 
@@ -996,17 +776,15 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
   }
   ctx.stroke();
 
-  // еда
+  // food
   let corpseGlowBudget = lowDetail ? 0 : 120;
   const foodStep = lowDetail ? 2 : 1;
   for(let i=0;i<foods.length;i+=foodStep){
     const f = foods[i];
     const mult = (typeof f.size === "number") ? f.size : 1;
     const baseR0 = (SEGMENT/4) * mult * Math.sqrt(SNAKE_SCALE);
-
     const x = sx(f.x);
     const y = sy(f.y);
-
     const isCorpse = (f.kind === "corpse");
     let alphaMul = 1.0;
     let scaleMul = 1.0;
@@ -1043,13 +821,11 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
     ctx.restore();
   }
 
-  // змейки
   for(const id in renderPlayers){
     const rp = renderPlayers[id];
     drawSnakeRibbon(rp.snake, rp.color, rp.boost, id === playerId, timeMs);
   }
 
-  // границы мира
   ctx.strokeStyle="red";
   ctx.lineWidth=4;
   ctx.strokeRect(
@@ -1060,56 +836,30 @@ Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${b
   );
 }
 
-/* =========================
-   START / WS
-========================= */
-function resetMePrediction(){
-  meBaseSnake = null;
-  meBaseHead = null;
-  mePredHead = null;
-  meLastPredTs = null;
-  meBaseBoost = false;
-  predDirUnit = {x:1, y:0};
-  initHeadingFromVector(wantDirUnit);
-}
-
-function blendSnake(prev, next, k){
-  if(!next || !next.length) return next;
-  if(!prev || !prev.length) return next.map(p => ({x:p.x, y:p.y}));
-  const n = Math.max(prev.length, next.length);
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const a = prev[i] || prev[prev.length-1];
-    const b = next[i] || next[next.length-1];
-    out[i] = { x: a.x + (b.x - a.x)*k, y: a.y + (b.y - a.y)*k };
-  }
-  return out;
-}
+/* START / WS */
+const td = new TextDecoder();
 
 function startGame(){
   dead = false;
 
   SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
-
   dir = {x:1,y:0};
-  wantDirUnit = {x:1,y:0};
-  initHeadingFromVector(wantDirUnit);
+  initHeadingFromVector({x:1,y:0});
 
-  players = {};
   foods = [];
+  for(const k in remote) delete remote[k];
+  for(const k in renderCache) delete renderCache[k];
+  foodBirth.clear();
   keysDown.clear();
   serverBoosting = false;
 
   lastSent = 0;
   lastDirSent = {x:1,y:0};
-
   lastAxisX = 1;
   lastAxisY = -1;
 
   cameraX = 0; cameraY = 0;
-  for(const id in snapshots) delete snapshots[id];
-  for(const id in renderCache) delete renderCache[id];
-  foodBirth.clear();
+  camHX = camHY = null;
 
   menu.style.display="none";
   canvas.style.display="block";
@@ -1132,14 +882,24 @@ function startGame(){
 
   playerId="player"+Math.floor(Math.random()*9999);
   ws=new WebSocket(wsUrl(`/ws/${ROOM_ID}/${playerId}`));
+  ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
     startRttPing();
     startInputHeartbeat();
   };
 
-  ws.onmessage = (e) => {
-    const data = JSON.parse(e.data);
+  ws.onmessage = async (e) => {
+    let data = null;
+
+    if(e.data instanceof ArrayBuffer){
+      const txt = td.decode(new Uint8Array(e.data));
+      data = JSON.parse(txt);
+    } else if(typeof e.data === "string") {
+      data = JSON.parse(e.data);
+    } else {
+      return;
+    }
 
     if (data.type === "pong") {
       const now = performance.now();
@@ -1151,35 +911,124 @@ function startGame(){
     if (data.type === "death") {
       dead = true;
       sendBoost(false);
-      resetMePrediction();
       return;
     }
 
-    if (data.players) players = data.players;
-
-    if (Array.isArray(data.foods)) {
-      foods = data.foods;
-      markFoodBirths(foods, performance.now());
+    if (data.type === "snapshot") {
+      const pl = data.players || {};
+      for(const id in pl){
+        const it = pl[id];
+        const r = remote[id] || (remote[id] = { path: [], bodyKF:null, lastV: 0, len: 10, _prevLen:null, boost:0, color:"white", head:null, dir:null, dirS:null, lastNetTs:null, snaps: [] });
+        r.color = it.color || r.color;
+        r.boost = !!it.boost;
+      }
+      if (Array.isArray(data.foods)) {
+        foods = data.foods;
+        markFoodBirths(foods, performance.now());
+      }
+      return;
     }
 
-    for (const id in players) pushSnapshot(id, players[id]);
+    if (data.type === "state" && data.players) {
+      const pl = data.players;
 
-    const me = players[playerId];
-    if(me && me.snake && me.snake.length){
-      const fresh = me.snake.map(p => ({x:p.x, y:p.y}));
-      meBaseSnake = blendSnake(meBaseSnake, fresh, 0.35);
+      const seen = new Set(Object.keys(pl));
+      for(const id in remote){
+        if(id === playerId) continue;
+        if(!seen.has(id)) delete remote[id];
+      }
 
-      meBaseHead = {x: meBaseSnake[0].x, y: meBaseSnake[0].y};
-      meBaseBoost = !!me.boost;
+      const nowMs = performance.now();
 
-      if(!mePredHead){
-        mePredHead = {x: meBaseHead.x, y: meBaseHead.y};
-        predDirUnit = {x: wantDirUnit.x, y: wantDirUnit.y};
-        initHeadingFromVector(wantDirUnit);
-      } else {
-        const k = 0.35;
-        mePredHead.x = mePredHead.x + (meBaseHead.x - mePredHead.x) * k;
-        mePredHead.y = mePredHead.y + (meBaseHead.y - mePredHead.y) * k;
+      for(const id in pl){
+        const it = pl[id];
+        const r = remote[id] || (remote[id] = { path: [], bodyKF:null, lastV: 0, len: 10, _prevLen:null, boost:0, color:"white", head:null, dir:null, dirS:null, lastNetTs:null, snaps: [] });
+
+        r.len = it.l|0;
+        r.boost = !!it.b;
+        r.color = it.c || r.color;
+
+        if(Array.isArray(it.h)) r.head = { x: it.h[0], y: it.h[1] };
+        if(Array.isArray(it.u)) r.dir  = { x: it.u[0], y: it.u[1] };
+
+        const hasKF = !!it.kf && Array.isArray(it.body) && it.body.length >= 4;
+        let skipPtThisTick = false;
+
+        if (hasKF) {
+          r.bodyKF = it.body;
+          const kfSnake = snakePointsFromFlatBody(it.body);
+          r.path = kfSnake.slice();
+          r.lastV = (it.pv | 0);
+          pushSnap(r, kfSnake, nowMs);
+          skipPtThisTick = true;
+        }
+
+        if (!skipPtThisTick && Array.isArray(it.pt) && it.pt.length) {
+          const basePrevV = (r.lastV | 0);
+
+          let maxV = (r.lastV | 0);
+          const newPts = [];
+
+          for (let j = 0; j < it.pt.length; j++) {
+            const n = it.pt[j];
+            const v = n[0] | 0;
+            if (v <= basePrevV) continue;
+
+            const x = +n[1], y = +n[2];
+
+            if (r.path && r.path.length) {
+              const hx = r.path[0].x, hy = r.path[0].y;
+              const dx = x - hx, dy = y - hy;
+              if (dx*dx + dy*dy < 0.01) {
+                if (v > maxV) maxV = v;
+                continue;
+              }
+            }
+
+            newPts.push({ x, y, v });
+            if (v > maxV) maxV = v;
+          }
+
+          for (let k = newPts.length - 1; k >= 0; k--) {
+            r.path.unshift({ x: newPts[k].x, y: newPts[k].y });
+          }
+
+          if (r.path.length > REMOTE_PATH_MAX) r.path.length = REMOTE_PATH_MAX;
+          r.lastV = maxV;
+
+          let sourcePath = (r.path && r.path.length >= 2) ? r.path : null;
+          if(!sourcePath && Array.isArray(r.bodyKF) && r.bodyKF.length >= 4){
+            sourcePath = snakePointsFromFlatBody(r.bodyKF);
+          }
+          if(sourcePath && sourcePath.length >= 2){
+            const netSnake = buildSnakeFromPath(sourcePath, r.len);
+            pushSnap(r, netSnake, nowMs);
+          }
+        }
+
+        if(r.dir){
+          let ux = r.dir.x, uy = r.dir.y;
+          const ul = Math.hypot(ux, uy) || 1;
+          ux /= ul; uy /= ul;
+
+          if(!r.dirS){
+            r.dirS = { x: ux, y: uy };
+          } else {
+            const dot = (r.dirS.x * ux + r.dirS.y * uy);
+            const a = (dot < 0.80) ? 0.65 : 0.25;
+            r.dirS.x = r.dirS.x + (ux - r.dirS.x) * a;
+            r.dirS.y = r.dirS.y + (uy - r.dirS.y) * a;
+            const sl = Math.hypot(r.dirS.x, r.dirS.y) || 1;
+            r.dirS.x /= sl; r.dirS.y /= sl;
+          }
+        }
+
+        r.lastNetTs = nowMs;
+      }
+
+      if (Array.isArray(data.foods)) {
+        foods = data.foods;
+        markFoodBirths(foods, performance.now());
       }
     }
   };
@@ -1188,10 +1037,8 @@ function startGame(){
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
     sendBoost(false);
-
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
-
     setTimeout(()=>{
       canvas.style.display="none";
       hud.style.display="none";
@@ -1200,29 +1047,28 @@ function startGame(){
   };
 }
 
-/* =========================
-   INPUT (ПК)
-========================= */
+/* INPUT (ПК) */
 canvas.addEventListener("mousemove", e=>{
   if(useTouch) return;
   if(!useMouse) return;
   if(dead) return;
+  const me = remote[playerId];
+  if(!me) return;
 
-  const head = getMyHead();
-  if(!head) return;
+  let hx = null, hy = null;
+  if(me.path && me.path.length) { hx = me.path[0].x; hy = me.path[0].y; }
+  else if(Array.isArray(me.bodyKF) && me.bodyKF.length >= 2) { hx = me.bodyKF[0]; hy = me.bodyKF[1]; }
+  if(hx == null) return;
 
-  const mx = (e.clientX / VIEW_ZOOM) + cameraX - head.x;
-  const my = (e.clientY / VIEW_ZOOM) + cameraY - head.y;
+  const mx = (e.clientX / VIEW_ZOOM) + cameraX - hx;
+  const my = (e.clientY / VIEW_ZOOM) + cameraY - hy;
   if(Math.abs(mx) + Math.abs(my) < 0.001) return;
-
   mouseTargetHeading = Math.atan2(my, mx);
 });
 
 document.addEventListener("keydown", e=>{
   if(useTouch) return;
   const k = (e.key || "").toLowerCase();
-
-  // M или Ь
   if(k === "m" || k === "ь"){
     useMouse = !useMouse;
     keysDown.clear();
@@ -1241,16 +1087,12 @@ function updateAxisOnPress(k){
 document.addEventListener("keydown", e=>{
   if(useTouch) return;
   if(dead) return;
-
   const k = normKey(e.key);
-
-  // ускорение на пробел
   if(k === " " || k === "space" || e.code === "Space"){
     sendBoost(true);
     e.preventDefault?.();
     return;
   }
-
   if(k === "w" || k === "a" || k === "s" || k === "d"){
     if(!keysDown.has(k)){
       keysDown.add(k);
@@ -1263,13 +1105,11 @@ document.addEventListener("keydown", e=>{
 document.addEventListener("keyup", e=>{
   if(useTouch) return;
   const k = normKey(e.key);
-
   if(k === " " || k === "space" || e.code === "Space"){
     sendBoost(false);
     e.preventDefault?.();
     return;
   }
-
   if(k === "w" || k === "a" || k === "s" || k === "d"){
     keysDown.delete(k);
     e.preventDefault?.();
@@ -1279,71 +1119,49 @@ document.addEventListener("keyup", e=>{
 window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
-/* =========================
-   INPUT (MOBILE): JOYSTICK + BOOST
-========================= */
+/* INPUT (MOBILE): joystick + boost */
 const joy = { active:false, pid:null, radius:48, x:0, y:0 };
-
-function setKnob(dx, dy){
-  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-}
-
+function setKnob(dx, dy){ joyKnob.style.transform = `translate(${dx}px, ${dy}px)`; }
 function joyReset(){
-  joy.active = false;
-  joy.pid = null;
-  joy.x = joy.y = 0;
-  setKnob(0,0);
+  joy.active = false; joy.pid = null;
+  joy.x = joy.y = 0; setKnob(0,0);
   touchTargetHeading = heading;
 }
-
 function joyUpdateFromPointer(clientX, clientY){
   const rect = joyWrap.getBoundingClientRect();
   const cx = rect.left + rect.width/2;
   const cy = rect.top + rect.height/2;
-
   const dx0 = clientX - cx;
   const dy0 = clientY - cy;
-
   const r = joy.radius;
   const len = Math.hypot(dx0, dy0);
-
   let dx = dx0, dy = dy0;
   if(len > r){
-    const k = r / len;
-    dx *= k; dy *= k;
+    const k = r / len; dx *= k; dy *= k;
   }
-
-  joy.x = dx;
-  joy.y = dy;
-
+  joy.x = dx; joy.y = dy;
   setKnob(dx, dy);
-
   if(Math.abs(dx) + Math.abs(dy) < 2){
     touchTargetHeading = heading;
     return;
   }
-
   touchTargetHeading = Math.atan2(dy, dx);
 }
-
 joyWrap.addEventListener("pointerdown", (e)=>{
   if(!useTouch) return;
   if(dead) return;
-
   joy.active = true;
   joy.pid = e.pointerId;
   joyWrap.setPointerCapture(e.pointerId);
   joyUpdateFromPointer(e.clientX, e.clientY);
   e.preventDefault();
 });
-
 joyWrap.addEventListener("pointermove", (e)=>{
   if(!useTouch || !joy.active) return;
   if(e.pointerId !== joy.pid) return;
   joyUpdateFromPointer(e.clientX, e.clientY);
   e.preventDefault();
 });
-
 function joyEnd(e){
   if(!useTouch || !joy.active) return;
   if(e && e.pointerId != null && e.pointerId !== joy.pid) return;
@@ -1354,7 +1172,6 @@ joyWrap.addEventListener("pointerup", joyEnd);
 joyWrap.addEventListener("pointercancel", joyEnd);
 joyWrap.addEventListener("lostpointercapture", joyEnd);
 
-/* boost button */
 function bindHoldButton(btn, onDown, onUp){
   btn.addEventListener("pointerdown", (e)=>{ if(!useTouch) return; onDown(); btn.setPointerCapture(e.pointerId); e.preventDefault(); });
   btn.addEventListener("pointerup",   (e)=>{ if(!useTouch) return; onUp();   e.preventDefault(); });
@@ -1363,9 +1180,7 @@ function bindHoldButton(btn, onDown, onUp){
 }
 bindHoldButton(boostBtn, ()=>sendBoost(true), ()=>sendBoost(false));
 
-/* =========================
-   START
-========================= */
+/* START */
 playBtn.addEventListener("click", startGame);
 fitCanvas();
 requestAnimationFrame(draw);
