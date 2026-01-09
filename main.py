@@ -1,4 +1,4 @@
-# server.py (FULL) — pv increments once per tick, all nodes in tick share same v
+# server.py (FULL) — FIX: reduce freezes on long snakes by limiting keyframe body size + keyframe less often
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import asyncio, random, time, logging, math
@@ -66,7 +66,13 @@ START_LEN = 10
 STATE_SEND_HZ = 20
 STATE_SEND_EVERY_TICKS = max(1, int(round((1.0 / STATE_SEND_HZ) / TICK)))
 PATH_SEND_LAST_N = 24
-KEYFRAME_EVERY_TICKS = 40 * 3
+
+# FIX 1: keyframe less often (was 40*3)
+KEYFRAME_EVERY_TICKS = 40 * 6  # ~6 sec
+
+# FIX 2: do not include huge "body" in keyframe for long snakes
+MAX_KEYFRAME_LEN = 260
+
 AOI_CELLS = 3
 
 SEND_QUEUE_MAX = 2
@@ -877,7 +883,9 @@ async def game_loop():
 
                         if send_keyframe:
                             item["kf"] = 1
-                            item["body"] = p.get("snake", [])
+                            # FIX: do not send giant keyframe bodies
+                            if int(p["length"]) <= MAX_KEYFRAME_LEN:
+                                item["body"] = p.get("snake", [])
 
                         pl_out[pid] = item
 

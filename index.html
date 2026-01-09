@@ -1,4 +1,4 @@
-<!-- index.html (FULL) — FIX: no jerk on food eat (length change) by padding shorter snakes on interp + smoothing -->
+<!-- index.html (FULL) — FIX: reduce freezes on long snakes (Float32 snaps + less GC), keep no-jerk on eat -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -324,7 +324,17 @@ function decimate(points, step){
 function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
   const base = renderSnake || [];
   if(base.length < 2) return;
-  const s = isMe ? base : decimate(base, lowDetail ? 3 : 2);
+
+  // FIX: for very long "me" snake reduce points a bit (cheap win)
+  let s;
+  if(isMe){
+    const n = base.length|0;
+    const step = (n > 360) ? 3 : (n > 220 ? 2 : 1);
+    s = (step === 1) ? base : decimate(base, step);
+  } else {
+    s = decimate(base, lowDetail ? 3 : 2);
+  }
+
   const BW = bodyWidth() * VIEW_ZOOM;
   const HR = headRadius() * VIEW_ZOOM;
 
@@ -431,12 +441,44 @@ function padToLen(snake, n){
 const INTERP_DELAY_MS = 160;
 const SNAP_MAX = 12;
 
+/* ==== FIX: snaps stored as Float32Array (less GC on long snakes) ==== */
+function snakeToFlatF32(snake){
+  const n = snake.length|0;
+  const out = new Float32Array(n * 2);
+  for(let i=0;i<n;i++){
+    out[i*2]   = snake[i].x;
+    out[i*2+1] = snake[i].y;
+  }
+  return out;
+}
+function padFlatToLen(flat, wantFloats){
+  if(!flat) return flat;
+  const m = flat.length|0;
+  if(m >= wantFloats) return flat;
+  const out = new Float32Array(wantFloats);
+  out.set(flat);
+  const lx = m >= 2 ? flat[m-2] : 0;
+  const ly = m >= 2 ? flat[m-1] : 0;
+  for(let i=m;i<wantFloats;i+=2){
+    out[i] = lx; out[i+1] = ly;
+  }
+  return out;
+}
+function flatF32ToPoints(flat){
+  const n = (flat.length/2)|0;
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    out[i] = { x: flat[i*2], y: flat[i*2+1] };
+  }
+  return out;
+}
+
 function pushSnap(r, snake, timeMs){
   if(!snake || snake.length < 2) return;
   if(!r.snaps) r.snaps = [];
   r.snaps.push({
     t: timeMs,
-    snake: snake.map(p => ({x:p.x, y:p.y})),
+    flat: snakeToFlatF32(snake),
     boost: !!r.boost,
     color: r.color || "white",
   });
@@ -445,11 +487,11 @@ function pushSnap(r, snake, timeMs){
 
 function interpSnakeFromSnaps(snaps, renderTime){
   if(!snaps || snaps.length === 0) return null;
-  if(snaps.length === 1) return snaps[0].snake;
+  if(snaps.length === 1) return flatF32ToPoints(snaps[0].flat);
 
-  if(renderTime <= snaps[0].t) return snaps[0].snake;
+  if(renderTime <= snaps[0].t) return flatF32ToPoints(snaps[0].flat);
   const last = snaps[snaps.length - 1];
-  if(renderTime >= last.t) return last.snake;
+  if(renderTime >= last.t) return flatF32ToPoints(last.flat);
 
   let i = snaps.length - 2;
   while(i >= 0 && snaps[i].t > renderTime) i--;
@@ -460,19 +502,18 @@ function interpSnakeFromSnaps(snaps, renderTime){
   const span = Math.max(1, b.t - a.t);
   const k = Math.max(0, Math.min(1, (renderTime - a.t) / span));
 
-  let sa = a.snake, sb = b.snake;
-  if(!sa || !sb) return sa || sb || null;
+  let fa = a.flat, fb = b.flat;
+  if(!fa || !fb) return null;
 
-  // KEY FIX: interpolate in max length, pad the shorter by repeating tail
-  const n = Math.max(sa.length, sb.length);
-  sa = padToLen(sa, n);
-  sb = padToLen(sb, n);
+  const n = Math.max(fa.length, fb.length);
+  fa = padFlatToLen(fa, n);
+  fb = padFlatToLen(fb, n);
 
-  const out = new Array(n);
+  const out = new Float32Array(n);
   for(let j=0;j<n;j++){
-    out[j] = { x: lerp(sa[j].x, sb[j].x, k), y: lerp(sa[j].y, sb[j].y, k) };
+    out[j] = lerp(fa[j], fb[j], k);
   }
-  return out;
+  return flatF32ToPoints(out);
 }
 
 /* ===== length-safe smoothing (main fix) ===== */
@@ -482,13 +523,11 @@ function smoothSnake(id, targetSnake, alpha){
 
   let prev = renderCache[id];
 
-  // if prev missing, init
   if(!prev || prev.length === 0){
     renderCache[id] = targetSnake.map(p => ({x:p.x, y:p.y}));
     return renderCache[id];
   }
 
-  // KEY FIX: if lengths differ, pad the shorter (do not reset hard)
   const n = Math.max(prev.length, targetSnake.length);
   prev = padToLen(prev, n);
   const tgt = padToLen(targetSnake, n);
