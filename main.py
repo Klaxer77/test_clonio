@@ -749,15 +749,47 @@ async def game_loop():
                                 p["length"] -= 1
 
                                 if count_kind(room_id, "drop") < DROP_FOOD_CAP and len(foods[room_id]) < TOTAL_FOOD_CAP:
+                                    tx, ty = float(tail["x"]), float(tail["y"])
+
+                                    # направление хвоста "наружу" (для бокового микросмещения)
+                                    if len(path) >= 2:
+                                        prev = path[-2]
+                                        px, py = float(prev["x"]), float(prev["y"])
+                                        vx, vy = (tx - px), (ty - py)
+                                        vl = math.hypot(vx, vy)
+                                    else:
+                                        vx, vy, vl = 0.0, 0.0, 0.0
+
+                                    if vl < 1e-6:
+                                        u = p.get("dir") or {"x": 1.0, "y": 0.0}
+                                        vx, vy = (-float(u["x"]), -float(u["y"]))
+                                        vl = math.hypot(vx, vy) or 1.0
+
+                                    nx, ny = vx / vl, vy / vl
+                                    lx, ly = -ny, nx
+
+                                    # МАКСИМАЛЬНО близко: на хвосте, только микро-сдвиг вбок
+                                    drop_dist = 0.0
+                                    side_jit  = SEGMENT * 0.06
+                                    j = random.uniform(-side_jit, side_jit)
+
+                                    x = tx + nx * drop_dist + lx * j
+                                    y = ty + ny * drop_dist + ly * j
+
+                                    x = max(0.0, min(x, float(WORLD_W - SEGMENT)))
+                                    y = max(0.0, min(y, float(WORLD_H - SEGMENT)))
+
+                                    gx = int(round(x / SEGMENT)) * SEGMENT
+                                    gy = int(round(y / SEGMENT)) * SEGMENT
+
                                     foods[room_id].append({
-                                        "x": int(float(tail["x"]) // SEGMENT) * SEGMENT,
-                                        "y": int(float(tail["y"]) // SEGMENT) * SEGMENT,
+                                        "x": gx,
+                                        "y": gy,
                                         "color": p["color"],
                                         "size": float(BOOST_FOOD_SIZE),
                                         "kind": "drop",
                                     })
                                     food_dirty[room_id] = True
-
                 need_path_len = (p["length"] + 10) * SEG_DIST
                 trim_path_fast(path, p, need_path_len)
 
