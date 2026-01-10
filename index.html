@@ -1,4 +1,4 @@
-<!-- index.html (FULL) — vacuum suction ONLY (no head glow / no swirl / close range only) -->
+<!-- index.html (FULL) — mobile fixes: safer touch, joystick moved, boost always yellow+transparent, slower visual snake on phones -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -6,16 +6,42 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Snake Smooth Multiplayer</title>
   <style>
+    :root{
+      --safeL: env(safe-area-inset-left);
+      --safeR: env(safe-area-inset-right);
+      --safeB: env(safe-area-inset-bottom);
+
+      /* Mobile UI placement (tweak here) */
+      --joySize: 140px;
+      --joyLeft: 22vw;        /* rightward (closer to center) */
+      --joyBottom: 34px;      /* lower (closer to bottom) */
+      --btnRight: 22px;
+      --btnBottom: 44px;
+      --boostSize: 82px;
+    }
+
     html,body{
       margin:0;padding:0;
+      width:100%;
+      height:100%;
       overflow:hidden;
+      overscroll-behavior: none;
+      -webkit-overflow-scrolling: auto;
       font-family:Arial,sans-serif;
       background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
       color:white;
-      height:100%;
+      touch-action:none; /* important */
     }
-    body{ position:fixed; inset:0; }
+    body{
+      position:fixed;
+      inset:0;
+      -webkit-user-select:none;
+      user-select:none;
+      -webkit-touch-callout:none;
+    }
+
     canvas{ display:block; outline:none; touch-action:none; }
+
     #menu{
       position:fixed;inset:0;
       display:flex;align-items:center;justify-content:center;flex-direction:column;
@@ -23,27 +49,33 @@
       gap:14px;text-align:center;padding:24px;box-sizing:border-box;
       z-index:30;
     }
-    button{font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;}
-    button:hover{background:#7CFF7C;}
+    /* Scope menu button styles so they don't affect boost button */
+    #menu button{
+      font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;
+    }
+    #menu button:hover{background:#7CFF7C;}
+
     .hud{
       position:fixed;left:12px;top:10px;z-index:25;
       font-size:14px;opacity:.85;user-select:none;pointer-events:none;
       text-shadow:0 1px 2px rgba(0,0,0,.6);
       line-height:1.35;white-space:pre;
     }
+
     #touchUI{
       position:fixed; inset:0; z-index:20;
       display:none;
       pointer-events:none;
       touch-action:none;
     }
+
     #joyWrap{
-  position:absolute;
-  left: max(16px, env(safe-area-inset-left));
-  bottom: calc(18px + env(safe-area-inset-bottom));
-  width:120px; height:120px;
-  pointer-events:auto; touch-action:none;
-}
+      position:absolute;
+      left: max(16px, var(--safeL));
+      bottom: calc(18px + var(--safeB));
+      width:120px; height:120px;
+      pointer-events:auto; touch-action:none;
+    }
     #joyBase{
       width:100%; height:100%;
       border-radius:999px;
@@ -63,49 +95,69 @@
       transform:translate(0,0);
       will-change:transform;
     }
+
     #btnWrap{
       position:absolute; right:18px; bottom:28px;
       display:flex; flex-direction:column; gap:12px;
       pointer-events:auto; touch-action:none;
     }
+
     #boostBtn,.boostBtn{
       -webkit-user-select:none; user-select:none;
       -webkit-touch-callout:none;
       -webkit-tap-highlight-color:transparent;
       outline:none; -webkit-appearance:none; appearance:none;
       caret-color:transparent;
+      border:none;
+      background:none;
+      padding:0;
+      margin:0;
     }
     #boostBtn:focus,#boostBtn:focus-visible{ outline:none; }
+
+    /* Always yellow + transparent (no green, no gradient) */
     .boostBtn{
       width:72px; height:72px; border-radius:999px;
       display:flex; align-items:center; justify-content:center;
       font-size:32px; font-weight:700;
-      background: radial-gradient(circle at 30% 30%, #ffe066, #f5c400);
-      color:#111;
-      border:1px solid rgba(255,255,255,0.25);
-      box-shadow: 0 10px 22px rgba(0,0,0,.35), inset 0 2px 4px rgba(255,255,255,.35);
+      background: rgba(245,196,0,0.50);
+      color: rgba(17,17,17,0.92);
+      border: 1px solid rgba(255,255,255,0.22);
+      box-shadow: 0 10px 22px rgba(0,0,0,.30), inset 0 2px 4px rgba(255,255,255,.22);
       -webkit-tap-highlight-color: transparent;
+      backdrop-filter: blur(2px);
     }
     .boostBtn .icon{ display:block; line-height:1; pointer-events:none; user-select:none; }
     .boostBtn:active{
       transform: scale(0.96);
-      box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 3px rgba(255,255,255,.35);
+      background: rgba(245,196,0,0.62);
+      box-shadow: 0 6px 14px rgba(0,0,0,.30), inset 0 1px 3px rgba(255,255,255,.22);
     }
-    /* мобильная настройка: выше и не так в угол */
+
     @media (pointer:coarse){
-    #joyWrap{
-        left: max(20px, env(safe-area-inset-left));
-        bottom: calc(110px + env(safe-area-inset-bottom)); /* было 18px */
-        width:140px; height:140px; /* чуть крупнее */
-    }
-    #btnWrap{
-        right: max(20px, env(safe-area-inset-right));
-        bottom: calc(120px + env(safe-area-inset-bottom)); /* было 28px */
-    }
-    .boostBtn{
-        width:84px; height:84px; /* чуть больше */
+      .hud{top:8px;left:10px;font-size:12px;opacity:.78;}
+
+      /* Move joystick closer to center and lower */
+      #joyWrap{
+        width: var(--joySize);
+        height: var(--joySize);
+        left: calc(var(--joyLeft) + var(--safeL));
+        bottom: calc(var(--joyBottom) + var(--safeB));
+      }
+      #joyKnob{
+        width:54px; height:54px;
+        margin-left:-27px; margin-top:-27px;
+      }
+
+      #btnWrap{
+        right: calc(var(--btnRight) + var(--safeR));
+        bottom: calc(var(--btnBottom) + var(--safeB));
+      }
+      .boostBtn{
+        width: var(--boostSize);
+        height: var(--boostSize);
         font-size:36px;
-    }
+      }
     }
   </style>
 </head>
@@ -192,10 +244,10 @@ function normAngle(a){
 
 /* SCALE */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_SNAKE_SCALE  = 0.88;
+const MOBILE_SNAKE_SCALE  = 0.92;   // a bit bigger on phones
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-const MOBILE_VIEW_ZOOM = 0.95;
+const MOBILE_VIEW_ZOOM = 0.98;      // slightly closer camera on phones
 let VIEW_ZOOM = 1;
 
 /* FPS */
@@ -264,6 +316,7 @@ function fitCanvas(){
   const w = vv ? Math.round(vv.width)  : innerWidth;
   const h = vv ? Math.round(vv.height) : innerHeight;
   VIEW_W = w; VIEW_H = h;
+
   if(isTouchDevice){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.style.width = w + "px";
@@ -526,10 +579,8 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 const remote = {};
 const REMOTE_PATH_MAX = 1400;
 
-/* FIX: float length -> tail point placed at exact tail distance */
 function buildSnakeFromPath(path, lengthUnits){
   const lu = Math.max(1, +lengthUnits || 1);
-
   const tailDist = Math.max(0, (lu - 1) * SEG_DIST);
   const nPoints = Math.max(1, Math.floor(tailDist / SEG_DIST) + 2);
 
@@ -553,13 +604,10 @@ function buildSnakeFromPath(path, lengthUnits){
     while(nextMark <= acc + segLen + 1e-6){
       const t = (nextMark - acc) / segLen;
       out.push({ x: a.x + dx*t, y: a.y + dy*t });
-
       if(nextMark >= tailDist - 1e-6) return out;
-
       nextMark += SEG_DIST;
       if(nextMark > tailDist) nextMark = tailDist;
     }
-
     acc += segLen;
   }
 
@@ -577,7 +625,6 @@ function snakePointsFromFlatBody(bodyFlat){
   return out;
 }
 
-/* ===== LENGTH-SAFE HELPERS ===== */
 function padToLen(snake, n){
   if(!snake) return snake;
   const m = snake.length|0;
@@ -588,11 +635,10 @@ function padToLen(snake, n){
   return out;
 }
 
-/* ===== render-in-the-past interpolation ===== */
-const INTERP_DELAY_MS = isTouchDevice ? 190 : 160;
+/* render-in-the-past interpolation (a bit more delay on phones for calmer motion) */
+const INTERP_DELAY_MS = isTouchDevice ? 220 : 160;
 const SNAP_MAX = 12;
 
-/* snaps stored as Float32Array */
 function snakeToFlatF32(snake){
   const n = snake.length|0;
   const out = new Float32Array(n * 2);
@@ -667,7 +713,7 @@ function interpSnakeFromSnaps(snaps, renderTime){
   return flatF32ToPoints(out);
 }
 
-/* ===== length-safe smoothing ===== */
+/* smoothing cache */
 const renderCache = {};
 function smoothSnake(id, targetSnake, alpha){
   if(!targetSnake || targetSnake.length === 0) return targetSnake;
@@ -732,12 +778,15 @@ function sendDirection(nx, ny){
 function getMyHeadWorld(){
   const cached = renderCache[playerId];
   if(cached && cached.length) return cached[0];
-
   const r = remote[playerId];
   if(r?.head) return r.head;
-
   return null;
 }
+
+/* assist magnet */
+const MAGNET_RADIUS = 240;
+const MAGNET_MAX = 0.22;
+const MAGNET_WHEN_BOOST = 0.35;
 
 function findNearestFoodDir(head){
   if(!head || !foods || !foods.length) return null;
@@ -754,7 +803,6 @@ function findNearestFoodDir(head){
       best = {dx, dy, d2};
     }
   }
-
   if(!best) return null;
 
   const d = Math.sqrt(best.d2) || 1;
@@ -896,38 +944,25 @@ function sendBoost(state){
   ws.send(JSON.stringify({boost: state}));
 }
 
-/* FOOD pop */
+/* FOOD pop + visuals */
 const foodBirth = new Map();
-const foodVis = new Map(); // key -> {x,y}
+const foodVis = new Map();
+const FOOD_POP_MS = 380;
 
 function expLerpFactor(dtMs, tauMs){
-  // стабильный коэффициент сглаживания, не зависит от FPS
   return 1 - Math.exp(-dtMs / Math.max(1, tauMs));
 }
-
 function getFoodVis(key, tx, ty){
   let v = foodVis.get(key);
-  if(!v){
-    v = { x: tx, y: ty };
-    foodVis.set(key, v);
-  }
+  if(!v){ v = { x: tx, y: ty }; foodVis.set(key, v); }
   return v;
 }
-
 function cleanupFoodVis(currentFoods){
-  // чтобы Map не рос бесконечно
   const alive = new Set(currentFoods.map(foodKey));
   for(const k of foodVis.keys()){
     if(!alive.has(k)) foodVis.delete(k);
   }
 }
-const FOOD_POP_MS = 380;
-
-// assist
-const MAGNET_RADIUS = 240;
-const MAGNET_MAX = 0.22;
-const MAGNET_WHEN_BOOST = 0.35;
-
 function foodKey(f){
   const x = (f && typeof f.x === "number") ? f.x : 0;
   const y = (f && typeof f.y === "number") ? f.y : 0;
@@ -959,10 +994,10 @@ function easeOutCubic(t){
 const FOOD_WOBBLE_PX = 7.5;
 const FOOD_WOBBLE_SPEED = 0.0036;
 
-/* VACUUM (visual only): close range ONLY, no glow changes, no swirl */
-const SUCTION_RADIUS   = 95;   // включается только рядом с головой
-const SUCTION_KILL     = 28;   // почти у головы — "прилипает"
-const SUCTION_PULL_PX  = 18.0; // шаг подтягивания (стабильно)
+/* VACUUM (visual only) */
+const SUCTION_RADIUS   = 95;
+const SUCTION_KILL     = 28;
+const SUCTION_PULL_PX  = 18.0;
 
 /* hash */
 function hash01(str){
@@ -1009,7 +1044,8 @@ function draw(ts){
   if(meR && meR.snaps && meR.snaps.length){
     const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
     if(meI && meI.length){
-      const meSmoothTau = isTouchDevice ? 60 : 35; // больше = медленнее визуально
+      /* slower visual snake on phones: higher tau */
+      const meSmoothTau = isTouchDevice ? 95 : 35;
       const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);
       const smoothMe = smoothSnake(playerId, meI, alphaMe);
       renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
@@ -1084,7 +1120,6 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
   }
 
   updateCamera(meRender);
-
   cleanupFoodVis(foods);
 
   /* FOOD DRAW */
@@ -1110,11 +1145,9 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       }
     }
 
-    // ---- TARGET position (raw) ----
     let tx = f.x;
     let ty = f.y;
 
-    // wobble on target
     const key = foodKey(f);
     const seed = hash01(key);
     const t0 = timeMs * FOOD_WOBBLE_SPEED + seed * 10.0;
@@ -1123,15 +1156,13 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     tx += (Math.sin(t0) + 0.55*Math.sin(t1 + 1.3)) * (FOOD_WOBBLE_PX * 0.70);
     ty += (Math.cos(t0 * 0.92 + 1.7) + 0.55*Math.cos(t1 * 0.88 + 2.2)) * (FOOD_WOBBLE_PX * 0.70);
 
-    // suction affects target (NOT directly drawn pos)
     let suctionK = 0;
-
     if(meRender && meRender.length){
-    const hx = meRender[0].x, hy = meRender[0].y;
-    const dxh = hx - tx, dyh = hy - ty;
-    const dist = Math.hypot(dxh, dyh) || 1;
+      const hx = meRender[0].x, hy = meRender[0].y;
+      const dxh = hx - tx, dyh = hy - ty;
+      const dist = Math.hypot(dxh, dyh) || 1;
 
-    if(dist < SUCTION_RADIUS){
+      if(dist < SUCTION_RADIUS){
         suctionK = smoothstep01(1 - (dist / SUCTION_RADIUS));
 
         const inv = 1 / dist;
@@ -1145,28 +1176,22 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
         ty += uy * step;
 
         if(dist < SUCTION_KILL){
-        const snap = smoothstep01(1 - dist / SUCTION_KILL);
-        tx = lerp(tx, hx, snap);
-        ty = lerp(ty, hy, snap);
+          const snap = smoothstep01(1 - dist / SUCTION_KILL);
+          tx = lerp(tx, hx, snap);
+          ty = lerp(ty, hy, snap);
         }
-    }
+      }
     }
 
-    // ---- SMOOTH visual position toward target ----
     const vis = getFoodVis(key, tx, ty);
-
-    // базовое сглаживание, а рядом с головой — быстрее, чтобы "притягивание" ощущалось
-    const tau = lerp(90, 35, suctionK); // ms: дальше плавнее, ближе быстрее
+    const tau = lerp(90, 35, suctionK);
     const kL = expLerpFactor(dtFrame, tau);
-
     vis.x = vis.x + (tx - vis.x) * kL;
     vis.y = vis.y + (ty - vis.y) * kL;
 
-    // draw from smoothed pos
     const x = sx(vis.x);
     const y = sy(vis.y);
 
-    // make food a bit smaller
     let visualMul = 1.0;
     if(f.kind === "base") visualMul = 0.68;
     else if(f.kind === "drop") visualMul = 0.62;
@@ -1176,8 +1201,6 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     const baseR = baseR0 * scaleMul * VIEW_ZOOM;
 
     const col = f.color || (isCorpse ? "white" : "lime");
-
-    // NO head aura, NO suction-based brightening. Only position changes above.
 
     ctx.save();
 
@@ -1195,7 +1218,6 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       ctx.shadowBlur = 0;
     }
 
-    // glow blob (constant, no suction dependence)
     ctx.save();
     ctx.globalAlpha *= isCorpse ? 0.75 : 0.55;
     ctx.fillStyle = col;
@@ -1204,7 +1226,6 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     ctx.fill();
     ctx.restore();
 
-    // core
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(x, y, baseR, 0, Math.PI*2);
@@ -1244,6 +1265,17 @@ function cloneSnakePoints(s){
   if(!s || !s.length) return null;
   return s.map(p => ({x: p.x, y: p.y}));
 }
+
+/* SAFER TOUCH: block page/viewport pulling while playing on mobile */
+let blockTouchScroll = false;
+function touchBlocker(e){
+  if(!blockTouchScroll) return;
+  e.preventDefault();
+}
+document.addEventListener("touchmove", touchBlocker, { passive:false });
+document.addEventListener("gesturestart", touchBlocker, { passive:false });
+document.addEventListener("gesturechange", touchBlocker, { passive:false });
+document.addEventListener("gestureend", touchBlocker, { passive:false });
 
 function startGame(){
   deathAtMs = null;
@@ -1292,9 +1324,11 @@ function startGame(){
     useMouse = false;
     touchUI.style.display = "block";
     touchUI.setAttribute("aria-hidden","false");
+    blockTouchScroll = true;   // important
   } else {
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
+    blockTouchScroll = false;
   }
 
   fitCanvas();
@@ -1447,23 +1481,6 @@ function startGame(){
           }
         }
 
-        if(r.dir){
-          let ux = r.dir.x, uy = r.dir.y;
-          const ul = Math.hypot(ux, uy) || 1;
-          ux /= ul; uy /= ul;
-
-          if(!r.dirS){
-            r.dirS = { x: ux, y: uy };
-          } else {
-            const dot = (r.dirS.x * ux + r.dirS.y * uy);
-            const a = (dot < 0.80) ? 0.65 : 0.25;
-            r.dirS.x = r.dirS.x + (ux - r.dirS.x) * a;
-            r.dirS.y = r.dirS.y + (uy - r.dirS.y) * a;
-            const sl = Math.hypot(r.dirS.x, r.dirS.y) || 1;
-            r.dirS.x /= sl; r.dirS.y /= sl;
-          }
-        }
-
         r.lastNetTs = nowMs;
       }
 
@@ -1478,8 +1495,10 @@ function startGame(){
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
     sendBoost(false);
+
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
+    blockTouchScroll = false;
 
     if(dead) return;
 
@@ -1562,7 +1581,7 @@ window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
 /* INPUT (MOBILE): joystick + boost */
-const joy = { active:false, pid:null, radius:56, x:0, y:0 };
+const joy = { active:false, pid:null, radius:58, x:0, y:0 };
 function setKnob(dx, dy){ joyKnob.style.transform = `translate(${dx}px, ${dy}px)`; }
 function joyReset(){
   joy.active = false; joy.pid = null;
@@ -1589,6 +1608,7 @@ function joyUpdateFromPointer(clientX, clientY){
   }
   touchTargetHeading = Math.atan2(dy, dx);
 }
+
 joyWrap.addEventListener("pointerdown", (e)=>{
   if(!useTouch) return;
   if(dead) return;
@@ -1597,28 +1617,50 @@ joyWrap.addEventListener("pointerdown", (e)=>{
   joyWrap.setPointerCapture(e.pointerId);
   joyUpdateFromPointer(e.clientX, e.clientY);
   e.preventDefault();
-});
+}, {passive:false});
+
 joyWrap.addEventListener("pointermove", (e)=>{
   if(!useTouch || !joy.active) return;
   if(e.pointerId !== joy.pid) return;
   joyUpdateFromPointer(e.clientX, e.clientY);
   e.preventDefault();
-});
+}, {passive:false});
+
 function joyEnd(e){
   if(!useTouch || !joy.active) return;
   if(e && e.pointerId != null && e.pointerId !== joy.pid) return;
   joyReset();
   e?.preventDefault?.();
 }
-joyWrap.addEventListener("pointerup", joyEnd);
-joyWrap.addEventListener("pointercancel", joyEnd);
-joyWrap.addEventListener("lostpointercapture", joyEnd);
+joyWrap.addEventListener("pointerup", joyEnd, {passive:false});
+joyWrap.addEventListener("pointercancel", joyEnd, {passive:false});
+joyWrap.addEventListener("lostpointercapture", joyEnd, {passive:false});
 
 function bindHoldButton(btn, onDown, onUp){
-  btn.addEventListener("pointerdown", (e)=>{ if(!useTouch) return; onDown(); btn.setPointerCapture(e.pointerId); e.preventDefault(); });
-  btn.addEventListener("pointerup",   (e)=>{ if(!useTouch) return; onUp();   e.preventDefault(); });
-  btn.addEventListener("pointercancel",(e)=>{ if(!useTouch) return; onUp();  e.preventDefault(); });
-  btn.addEventListener("lostpointercapture",(e)=>{ if(!useTouch) return; onUp(); e.preventDefault(); });
+  btn.addEventListener("pointerdown", (e)=>{
+    if(!useTouch) return;
+    onDown();
+    btn.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, {passive:false});
+
+  btn.addEventListener("pointerup", (e)=>{
+    if(!useTouch) return;
+    onUp();
+    e.preventDefault();
+  }, {passive:false});
+
+  btn.addEventListener("pointercancel", (e)=>{
+    if(!useTouch) return;
+    onUp();
+    e.preventDefault();
+  }, {passive:false});
+
+  btn.addEventListener("lostpointercapture", (e)=>{
+    if(!useTouch) return;
+    onUp();
+    e.preventDefault();
+  }, {passive:false});
 }
 bindHoldButton(boostBtn, ()=>sendBoost(true), ()=>sendBoost(false));
 
