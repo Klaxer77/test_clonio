@@ -159,8 +159,7 @@ const isTouchDevice =
   (navigator.maxTouchPoints > 0);
 
 function wsUrl(path){
-  const proto = (location.protocol === "https:") ? "wss" : "ws";
-  return `${proto}://${location.host}${path}`;
+  return `wss://${location.host}${path}`;
 }
 
 function clamp01(v){ return Math.max(-1, Math.min(1, v)); }
