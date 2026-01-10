@@ -1,4 +1,4 @@
-<!-- index.html (FULL) — lower mobile controls + MUCH less “tele-eat” + wider view (zoom-out) while keeping snake size -->
+<!-- index.html (FULL) — fixed: restore pt-state (snake renders/moves), tighter tele-eat, wider view without changing snake size, safer mobile UI, boost button slightly up + right -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -48,7 +48,7 @@
       position:absolute;
       pointer-events:auto; touch-action:none;
       left: max(16px, env(safe-area-inset-left));
-      bottom: calc(26px + env(safe-area-inset-bottom)); /* ниже */
+      bottom: calc(26px + env(safe-area-inset-bottom));
       width:150px; height:150px;
       -webkit-user-select:none; user-select:none;
       -webkit-tap-highlight-color:transparent;
@@ -76,8 +76,11 @@
     #btnWrap{
       position:absolute;
       pointer-events:auto; touch-action:none;
-      right: max(16px, env(safe-area-inset-right));
-      bottom: calc(26px + env(safe-area-inset-bottom)); /* ниже */
+
+      /* чуть правее (ближе к краю) и чуть выше */
+      right: max(10px, env(safe-area-inset-right));
+      bottom: calc(34px + env(safe-area-inset-bottom));
+
       display:flex; flex-direction:column; gap:12px;
       -webkit-user-select:none; user-select:none;
       -webkit-tap-highlight-color:transparent;
@@ -205,13 +208,12 @@ function normAngle(a){
 }
 
 /* ===== VIEW / SNAKE SIZE
-   Хочешь больше обзор (zoom-out сильнее), но размер змейки на экране оставить тем же.
-   Значит: уменьшаем MOBILE_VIEW_ZOOM и увеличиваем MOBILE_SNAKE_SCALE так,
-   чтобы (SNAKE_SCALE * VIEW_ZOOM) остался почти прежним.
+   Увеличиваем обзор (zoom-out) и компенсируем масштабом змейки,
+   чтобы визуально она осталась примерно той же толщины.
 */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_VIEW_ZOOM    = 0.82;  // обзор шире (было 0.88)
-const MOBILE_SNAKE_SCALE  = 1.29;  // компенсация размера (чтобы визуально почти не менялся)
+const MOBILE_VIEW_ZOOM    = 0.82;
+const MOBILE_SNAKE_SCALE  = 1.29;
 
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
@@ -751,10 +753,10 @@ function getMyHeadWorld(){
   return null;
 }
 
-/* ===== anti “tele-eat”: make assist VERY close-range ===== */
-const MAGNET_RADIUS = 85;        // было 150
-const MAGNET_MAX = 0.06;         // было 0.12
-const MAGNET_WHEN_BOOST = 0.08;  // было 0.18
+/* ===== anti “tele-eat”: assist VERY close-range ===== */
+const MAGNET_RADIUS = 85;
+const MAGNET_MAX = 0.06;
+const MAGNET_WHEN_BOOST = 0.08;
 
 function findNearestFoodDir(head){
   if(!head || !foods || !foods.length) return null;
@@ -785,7 +787,7 @@ function applyMagnetToDir(nx, ny){
   if(!t) return {nx, ny};
 
   const k = smoothstep01(t.k);
-  if(k < 0.45) return {nx, ny}; // включается только почти впритык
+  if(k < 0.45) return {nx, ny};
 
   const boostMul = serverBoosting ? MAGNET_WHEN_BOOST : 1.0;
   const m = MAGNET_MAX * k * boostMul;
@@ -970,10 +972,10 @@ function easeOutCubic(t){
 const FOOD_WOBBLE_PX = 7.5;
 const FOOD_WOBBLE_SPEED = 0.0036;
 
-/* VACUUM visual (close-range ONLY) — even tighter now */
-const SUCTION_RADIUS   = 32;  // было 55
-const SUCTION_KILL     = 10;  // было 18
-const SUCTION_PULL_PX  = 5.5; // было 10
+/* VACUUM visual (close-range ONLY) — tighter */
+const SUCTION_RADIUS   = 32;
+const SUCTION_KILL     = 10;
+const SUCTION_PULL_PX  = 5.5;
 
 function hash01(str){
   let h = 2166136261;
@@ -985,7 +987,6 @@ function hash01(str){
 }
 
 /* DRAW LOOP */
-let lastFpsTs2 = performance.now();
 function draw(ts){
   requestAnimationFrame(draw);
   if(canvas.style.display==="none") return;
@@ -1020,7 +1021,8 @@ function draw(ts){
   if(meR && meR.snaps && meR.snaps.length){
     const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
     if(meI && meI.length){
-      const meSmoothTau = isTouchDevice ? 78 : 35;
+      /* визуально медленнее на мобиле (без изменения реальной скорости) */
+      const meSmoothTau = isTouchDevice ? 88 : 35;
       const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);
       const smoothMe = smoothSnake(playerId, meI, alphaMe);
       renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
@@ -1063,7 +1065,6 @@ function draw(ts){
 FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Ускорение: ${boostActive ? "вкл" : "выкл"} | M/Ь: режим (ПК)`;
 
   updateCamera(meRender);
-
   cleanupFoodVis(foods);
 
   /* FOOD DRAW */
@@ -1192,12 +1193,28 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     WORLD_W * VIEW_ZOOM,
     WORLD_H * VIEW_ZOOM
   );
+
+  if(dead && deathAtMs != null){
+    const k = smoothstep01((timeMs - deathAtMs) / DEATH_FADE_MS);
+    const a = 0.85 * k;
+    ctx.save();
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.fillRect(0,0,VIEW_W,VIEW_H);
+    ctx.restore();
+  }
 }
 
 /* START / WS */
 const td = new TextDecoder();
 
+function cloneSnakePoints(s){
+  if(!s || !s.length) return null;
+  return s.map(p => ({x: p.x, y: p.y}));
+}
+
 function startGame(){
+  if(deathMenuTimer){ clearTimeout(deathMenuTimer); deathMenuTimer = null; }
+
   dead = false;
   deathAtMs = null;
   deathGhost = null;
@@ -1218,6 +1235,11 @@ function startGame(){
   foodVis.clear();
   keysDown.clear();
   serverBoosting = false;
+
+  lastSent = 0;
+  lastDirSent = {x:1, y:0};
+  lastAxisX = 1;
+  lastAxisY = -1;
 
   cameraX = 0; cameraY = 0;
   camHX = camHY = null;
@@ -1271,6 +1293,28 @@ function startGame(){
       return;
     }
 
+    if (data.type === "death") {
+      dead = true;
+      sendBoost(false);
+
+      const now = performance.now();
+      if(deathAtMs == null) deathAtMs = now;
+
+      const cached = renderCache[playerId];
+      const snake = cloneSnakePoints(cached && cached.length ? cached : null);
+      deathGhost = snake ? { snake, vx: lastMeVel.vx, vy: lastMeVel.vy, lastTs: now } : null;
+
+      if(deathMenuTimer) clearTimeout(deathMenuTimer);
+      deathMenuTimer = setTimeout(()=>{
+        try{ ws?.close?.(); } catch(_e){}
+        canvas.style.display="none";
+        hud.style.display="none";
+        menu.style.display="flex";
+      }, DEATH_HOLD_MS);
+
+      return;
+    }
+
     if (data.type === "snapshot") {
       const pl = data.players || {};
       for(const id in pl){
@@ -1286,8 +1330,16 @@ function startGame(){
       return;
     }
 
+    /* IMPORTANT: restore full pt + kf processing, otherwise snake won't render/move */
     if (data.type === "state" && data.players) {
       const pl = data.players;
+
+      const seen = new Set(Object.keys(pl));
+      for(const id in remote){
+        if(id === playerId) continue;
+        if(!seen.has(id)) delete remote[id];
+      }
+
       const nowMs = performance.now();
 
       for(const id in pl){
@@ -1299,13 +1351,86 @@ function startGame(){
         r.boost = !!it.b;
         r.color = it.c || r.color;
 
-        if(!!it.kf && Array.isArray(it.body) && it.body.length >= 4){
+        if(Array.isArray(it.h)) r.head = { x: it.h[0], y: it.h[1] };
+        if(Array.isArray(it.u)) r.dir  = { x: it.u[0], y: it.u[1] };
+
+        const hasKF = !!it.kf && Array.isArray(it.body) && it.body.length >= 4;
+        let skipPtThisTick = false;
+
+        if (hasKF) {
           r.bodyKF = it.body;
           const kfSnake = snakePointsFromFlatBody(it.body);
           r.path = kfSnake.slice();
+          r.lastV = (it.pv | 0);
+
           const netSnake = buildSnakeFromPath(r.path, r.lenF);
           pushSnap(r, netSnake, nowMs);
+
+          skipPtThisTick = true;
         }
+
+        if (!skipPtThisTick && Array.isArray(it.pt) && it.pt.length) {
+          const basePrevV = (r.lastV | 0);
+
+          let maxV = (r.lastV | 0);
+          const newPts = [];
+
+          for (let j = 0; j < it.pt.length; j++) {
+            const n = it.pt[j];
+            const v = n[0] | 0;
+            if (v <= basePrevV) continue;
+
+            const x = +n[1], y = +n[2];
+
+            if (r.path && r.path.length) {
+              const hx = r.path[0].x, hy = r.path[0].y;
+              const dx = x - hx, dy = y - hy;
+              if (dx*dx + dy*dy < 0.01) {
+                if (v > maxV) maxV = v;
+                continue;
+              }
+            }
+
+            newPts.push({ x, y, v });
+            if (v > maxV) maxV = v;
+          }
+
+          for (let k = newPts.length - 1; k >= 0; k--) {
+            r.path.unshift({ x: newPts[k].x, y: newPts[k].y });
+          }
+
+          if (r.path.length > REMOTE_PATH_MAX) r.path.length = REMOTE_PATH_MAX;
+          r.lastV = maxV;
+
+          let sourcePath = (r.path && r.path.length >= 2) ? r.path : null;
+          if(!sourcePath && Array.isArray(r.bodyKF) && r.bodyKF.length >= 4){
+            sourcePath = snakePointsFromFlatBody(r.bodyKF);
+          }
+          if(sourcePath && sourcePath.length >= 2){
+            const netSnake = buildSnakeFromPath(sourcePath, r.lenF);
+            pushSnap(r, netSnake, nowMs);
+          }
+        }
+
+        /* smooth remote direction (optional) */
+        if(r.dir){
+          let ux = r.dir.x, uy = r.dir.y;
+          const ul = Math.hypot(ux, uy) || 1;
+          ux /= ul; uy /= ul;
+
+          if(!r.dirS){
+            r.dirS = { x: ux, y: uy };
+          } else {
+            const dot = (r.dirS.x * ux + r.dirS.y * uy);
+            const a = (dot < 0.80) ? 0.65 : 0.25;
+            r.dirS.x = r.dirS.x + (ux - r.dirS.x) * a;
+            r.dirS.y = r.dirS.y + (uy - r.dirS.y) * a;
+            const sl = Math.hypot(r.dirS.x, r.dirS.y) || 1;
+            r.dirS.x /= sl; r.dirS.y /= sl;
+          }
+        }
+
+        r.lastNetTs = nowMs;
       }
 
       if (Array.isArray(data.foods)) {
@@ -1321,6 +1446,8 @@ function startGame(){
     sendBoost(false);
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
+
+    if(dead) return;
 
     canvas.style.display="none";
     hud.style.display="none";
@@ -1358,6 +1485,13 @@ document.addEventListener("keydown", e=>{
   }
 });
 
+function updateAxisOnPress(k){
+  if(k === "a") lastAxisX = -1;
+  if(k === "d") lastAxisX =  1;
+  if(k === "w") lastAxisY = -1;
+  if(k === "s") lastAxisY =  1;
+}
+
 document.addEventListener("keydown", e=>{
   if(useTouch) return;
   if(dead) return;
@@ -1368,7 +1502,10 @@ document.addEventListener("keydown", e=>{
     return;
   }
   if(k === "w" || k === "a" || k === "s" || k === "d"){
-    keysDown.add(k);
+    if(!keysDown.has(k)){
+      keysDown.add(k);
+      updateAxisOnPress(k);
+    }
     e.preventDefault?.();
   }
 });
