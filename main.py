@@ -24,7 +24,10 @@ SPAWN_PROTECTION = 0
 
 BOOST_MULT = 1.8
 BOOST_MIN_LEN = 6
-BOOST_DROP_EVERY_TICKS = 2
+BOOST_COST_PER_TICK = 0.14
+
+# максимум, сколько можно списать за тик, чтобы не было резких скачков
+BOOST_MAX_COST_PER_TICK = 0.35
 BOOST_FOOD_SIZE = 1.2
 
 SEG_DIST = SEGMENT * 0.85
@@ -548,6 +551,7 @@ async def ws_handler(ws: WebSocket, room_id: str, player_id: str):
         init_path_len += ds
 
     rooms[room_id][player_id] = {
+        "boost_spent": 0.0,
         "dir": {"x": 1.0, "y": 0.0},
         "color": f"hsl({random.randint(0,360)},80%,50%)",
         "spawn_time": time.time(),
@@ -808,55 +812,82 @@ async def game_loop():
                     p["pending_grow"] = 0.0
 
                 # boost drops: keep as 1 segment per drop (game feel), but keep float type consistent
+                # --- BOOST COST (smooth) + proportional drop trail ---
                 if p.get("boost", False) and float(p["length"]) > BOOST_MIN_LEN:
-                    if p["tick_i"] % BOOST_DROP_EVERY_TICKS == 0:
-                        if float(p["pending_grow"]) > 0.0:
-                            p["pending_grow"] = max(0.0, float(p["pending_grow"]) - 1.0)
-                        else:
-                            if float(p["length"]) > BOOST_MIN_LEN:
-                                tail = path[-1]
-                                p["length"] = float(p["length"]) - 1.0
+                    # плавная стоимость буста (учитываем dt_mul, чтобы при лаге не ломало баланс)
+                    spend = float(BOOST_COST_PER_TICK) * float(dt_mul)
+                    spend = min(spend, float(BOOST_MAX_COST_PER_TICK))
 
-                                if count_kind(room_id, "drop") < DROP_FOOD_CAP and len(foods[room_id]) < TOTAL_FOOD_CAP:
-                                    tx, ty = float(tail["x"]), float(tail["y"])
+                    if spend > 0.0:
+                        # 1) сначала "съедаем" накопленный рост, чтобы буст не обнулял длину мгновенно
+                        pg = float(p.get("pending_grow", 0.0))
+                        if pg > 0.0:
+                            take = min(pg, spend)
+                            p["pending_grow"] = pg - take
+                            spend -= take
 
-                                    if len(path) >= 2:
-                                        prev = path[-2]
-                                        px, py = float(prev["x"]), float(prev["y"])
-                                        vx, vy = (tx - px), (ty - py)
-                                        vl = math.hypot(vx, vy)
-                                    else:
-                                        vx, vy, vl = 0.0, 0.0, 0.0
+                        # 2) остаток списываем из реальной длины
+                        if spend > 0.0:
+                            if float(p["length"]) > float(BOOST_MIN_LEN):
+                                p["length"] = float(p["length"]) - spend
+                            else:
+                                p["length"] = float(BOOST_MIN_LEN)
 
-                                    if vl < 1e-6:
-                                        uu = p.get("dir") or {"x": 1.0, "y": 0.0}
-                                        vx, vy = (-float(uu["x"]), -float(uu["y"]))
-                                        vl = math.hypot(vx, vy) or 1.0
+                        # 3) сколько реально потратили в этом тике (всего, включая pending_grow)
+                        spent_total = float(BOOST_COST_PER_TICK) * float(dt_mul)
+                        spent_total = min(spent_total, float(BOOST_MAX_COST_PER_TICK))
 
-                                    nx2, ny2 = vx / vl, vy / vl
-                                    lx, ly = -ny2, nx2
+                        p["boost_spent"] = float(p.get("boost_spent", 0.0)) + spent_total
 
-                                    drop_dist = 0.0
-                                    side_jit = SEGMENT * 0.06
-                                    j = random.uniform(-side_jit, side_jit)
+                        # 4) след из еды: 1 drop на каждые 1.0 потраченной "длины"
+                        #    так след всегда соответствует расходу
+                        while p["boost_spent"] >= 1.0:
+                            p["boost_spent"] -= 1.0
 
-                                    x = tx + nx2 * drop_dist + lx * j
-                                    y = ty + ny2 * drop_dist + ly * j
+                            if count_kind(room_id, "drop") >= DROP_FOOD_CAP:
+                                break
+                            if len(foods[room_id]) >= TOTAL_FOOD_CAP:
+                                break
 
-                                    x = max(0.0, min(x, float(WORLD_W - SEGMENT)))
-                                    y = max(0.0, min(y, float(WORLD_H - SEGMENT)))
+                            tail = path[-1]
+                            tx, ty = float(tail["x"]), float(tail["y"])
 
-                                    gx = int(round(x / SEGMENT)) * SEGMENT
-                                    gy = int(round(y / SEGMENT)) * SEGMENT
+                            if len(path) >= 2:
+                                prev = path[-2]
+                                px, py = float(prev["x"]), float(prev["y"])
+                                vx, vy = (tx - px), (ty - py)
+                                vl = math.hypot(vx, vy)
+                            else:
+                                vx, vy, vl = 0.0, 0.0, 0.0
 
-                                    foods[room_id].append({
-                                        "x": gx,
-                                        "y": gy,
-                                        "color": p["color"],
-                                        "size": float(BOOST_FOOD_SIZE),
-                                        "kind": "drop",
-                                    })
-                                    food_dirty[room_id] = True
+                            if vl < 1e-6:
+                                uu = p.get("dir") or {"x": 1.0, "y": 0.0}
+                                vx, vy = (-float(uu["x"]), -float(uu["y"]))
+                                vl = math.hypot(vx, vy) or 1.0
+
+                            nx2, ny2 = vx / vl, vy / vl
+                            lx, ly = -ny2, nx2
+
+                            side_jit = SEGMENT * 0.06
+                            j = random.uniform(-side_jit, side_jit)
+
+                            x = tx + lx * j
+                            y = ty + ly * j
+
+                            x = max(0.0, min(x, float(WORLD_W - SEGMENT)))
+                            y = max(0.0, min(y, float(WORLD_H - SEGMENT)))
+
+                            gx = int(round(x / SEGMENT)) * SEGMENT
+                            gy = int(round(y / SEGMENT)) * SEGMENT
+
+                            foods[room_id].append({
+                                "x": gx,
+                                "y": gy,
+                                "color": p["color"],
+                                "size": float(BOOST_FOOD_SIZE),
+                                "kind": "drop",
+                            })
+                            food_dirty[room_id] = True
 
                 need_path_len = (float(p["length"]) + 10.0) * SEG_DIST
                 trim_path_fast(path, p, need_path_len)

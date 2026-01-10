@@ -1,4 +1,4 @@
-<!-- index.html (FULL) — with smooth-length support (lf) + buildSnakeFromPath float-tail -->
+<!-- index.html (FULL) — vacuum suction ONLY (no head glow / no swirl / close range only) -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -884,6 +884,29 @@ function sendBoost(state){
 
 /* FOOD pop */
 const foodBirth = new Map();
+const foodVis = new Map(); // key -> {x,y}
+
+function expLerpFactor(dtMs, tauMs){
+  // стабильный коэффициент сглаживания, не зависит от FPS
+  return 1 - Math.exp(-dtMs / Math.max(1, tauMs));
+}
+
+function getFoodVis(key, tx, ty){
+  let v = foodVis.get(key);
+  if(!v){
+    v = { x: tx, y: ty };
+    foodVis.set(key, v);
+  }
+  return v;
+}
+
+function cleanupFoodVis(currentFoods){
+  // чтобы Map не рос бесконечно
+  const alive = new Set(currentFoods.map(foodKey));
+  for(const k of foodVis.keys()){
+    if(!alive.has(k)) foodVis.delete(k);
+  }
+}
 const FOOD_POP_MS = 380;
 
 // assist
@@ -919,11 +942,15 @@ function easeOutCubic(t){
 }
 
 /* Food motion (visual only) */
-const FOOD_WOBBLE_PX = 4.2;
-const FOOD_WOBBLE_SPEED = 0.0016;
-const FOOD_PULL_RADIUS = 260;
-const FOOD_PULL_PX = 6.0;
+const FOOD_WOBBLE_PX = 7.5;
+const FOOD_WOBBLE_SPEED = 0.0036;
 
+/* VACUUM (visual only): close range ONLY, no glow changes, no swirl */
+const SUCTION_RADIUS   = 95;   // включается только рядом с головой
+const SUCTION_KILL     = 28;   // почти у головы — "прилипает"
+const SUCTION_PULL_PX  = 18.0; // шаг подтягивания (стабильно)
+
+/* hash */
 function hash01(str){
   let h = 2166136261;
   for(let i=0;i<str.length;i++){
@@ -959,7 +986,6 @@ function draw(ts){
   const timeMs = ts;
 
   updateFpsOnRenderedFrame(timeMs);
-
   drawBackground();
 
   const renderPlayers = {};
@@ -1044,13 +1070,15 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
 
   updateCamera(meRender);
 
+  cleanupFoodVis(foods);
+
+  /* FOOD DRAW */
   let corpseGlowBudget = lowDetail ? 0 : 120;
   const foodStep = lowDetail ? 2 : 1;
 
   for(let i=0;i<foods.length;i+=foodStep){
     const f = foods[i];
     const mult = (typeof f.size === "number") ? f.size : 1;
-    const baseR0 = (SEGMENT/4) * mult * Math.sqrt(SNAKE_SCALE);
     const isCorpse = (f.kind === "corpse");
 
     let alphaMul = 1.0;
@@ -1067,36 +1095,74 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       }
     }
 
-    let fx = f.x;
-    let fy = f.y;
+    // ---- TARGET position (raw) ----
+    let tx = f.x;
+    let ty = f.y;
 
+    // wobble on target
     const key = foodKey(f);
     const seed = hash01(key);
     const t0 = timeMs * FOOD_WOBBLE_SPEED + seed * 10.0;
     const t1 = timeMs * (FOOD_WOBBLE_SPEED * 0.55) + seed * 3.0;
 
-    fx += (Math.sin(t0) + 0.55*Math.sin(t1 + 1.3)) * (FOOD_WOBBLE_PX * 0.70);
-    fy += (Math.cos(t0 * 0.92 + 1.7) + 0.55*Math.cos(t1 * 0.88 + 2.2)) * (FOOD_WOBBLE_PX * 0.70);
+    tx += (Math.sin(t0) + 0.55*Math.sin(t1 + 1.3)) * (FOOD_WOBBLE_PX * 0.70);
+    ty += (Math.cos(t0 * 0.92 + 1.7) + 0.55*Math.cos(t1 * 0.88 + 2.2)) * (FOOD_WOBBLE_PX * 0.70);
+
+    // suction affects target (NOT directly drawn pos)
+    let suctionK = 0;
 
     if(meRender && meRender.length){
-      const hx = meRender[0].x;
-      const hy = meRender[0].y;
-      const dx = hx - fx;
-      const dy = hy - fy;
-      const dist = Math.hypot(dx, dy) || 1;
+    const hx = meRender[0].x, hy = meRender[0].y;
+    const dxh = hx - tx, dyh = hy - ty;
+    const dist = Math.hypot(dxh, dyh) || 1;
 
-      if(dist < FOOD_PULL_RADIUS){
-        const kPull = (1 - dist / FOOD_PULL_RADIUS);
-        const pull = FOOD_PULL_PX * kPull * kPull;
-        fx += (dx / dist) * pull;
-        fy += (dy / dist) * pull;
-      }
+    if(dist < SUCTION_RADIUS){
+        suctionK = smoothstep01(1 - (dist / SUCTION_RADIUS));
+
+        const inv = 1 / dist;
+        const ux = dxh * inv, uy = dyh * inv;
+
+        const maxStep = SUCTION_PULL_PX * (0.25 + 0.75*suctionK);
+        const need = Math.max(0, dist - SUCTION_KILL);
+        const step = Math.min(maxStep, need);
+
+        tx += ux * step;
+        ty += uy * step;
+
+        if(dist < SUCTION_KILL){
+        const snap = smoothstep01(1 - dist / SUCTION_KILL);
+        tx = lerp(tx, hx, snap);
+        ty = lerp(ty, hy, snap);
+        }
+    }
     }
 
-    const x = sx(fx);
-    const y = sy(fy);
+    // ---- SMOOTH visual position toward target ----
+    const vis = getFoodVis(key, tx, ty);
 
+    // базовое сглаживание, а рядом с головой — быстрее, чтобы "притягивание" ощущалось
+    const tau = lerp(90, 35, suctionK); // ms: дальше плавнее, ближе быстрее
+    const kL = expLerpFactor(dtFrame, tau);
+
+    vis.x = vis.x + (tx - vis.x) * kL;
+    vis.y = vis.y + (ty - vis.y) * kL;
+
+    // draw from smoothed pos
+    const x = sx(vis.x);
+    const y = sy(vis.y);
+
+    // make food a bit smaller
+    let visualMul = 1.0;
+    if(f.kind === "base") visualMul = 0.68;
+    else if(f.kind === "drop") visualMul = 0.62;
+    else if(f.kind === "corpse") visualMul = 0.70;
+
+    const baseR0 = (SEGMENT/4) * mult * visualMul * Math.sqrt(SNAKE_SCALE);
     const baseR = baseR0 * scaleMul * VIEW_ZOOM;
+
+    const col = f.color || (isCorpse ? "white" : "lime");
+
+    // NO head aura, NO suction-based brightening. Only position changes above.
 
     ctx.save();
 
@@ -1104,25 +1170,26 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       ctx.globalAlpha = alphaMul;
       if(corpseGlowBudget > 0){
         corpseGlowBudget--;
-        ctx.shadowColor = f.color || "white";
-        ctx.shadowBlur = 18 * scaleMul;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 12 * scaleMul;
       } else {
         ctx.shadowBlur = 0;
       }
     } else {
+      ctx.globalAlpha = 1.0;
       ctx.shadowBlur = 0;
     }
 
-    const col = f.color || (isCorpse ? "white" : "lime");
-
+    // glow blob (constant, no suction dependence)
     ctx.save();
     ctx.globalAlpha *= isCorpse ? 0.75 : 0.55;
     ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.arc(x, y, baseR * 1.55, 0, Math.PI*2);
+    ctx.arc(x, y, baseR * 1.35, 0, Math.PI*2);
     ctx.fill();
     ctx.restore();
 
+    // core
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(x, y, baseR, 0, Math.PI*2);
@@ -1182,6 +1249,7 @@ function startGame(){
   for(const k in remote) delete remote[k];
   for(const k in renderCache) delete renderCache[k];
   foodBirth.clear();
+  foodVis.clear();
   keysDown.clear();
   serverBoosting = false;
 
