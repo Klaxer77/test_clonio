@@ -1,46 +1,49 @@
-<!-- index.html (FULL) — mobile fixes: safer touch, joystick moved, boost always yellow+transparent, slower visual snake on phones -->
+<!-- index.html (FULL) — mobile UI fixed: safer touch, joystick position, slower visual, weaker far suction -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Snake Smooth Multiplayer</title>
+
   <style>
     :root{
-      --safeL: env(safe-area-inset-left);
-      --safeR: env(safe-area-inset-right);
-      --safeB: env(safe-area-inset-bottom);
+      /* default (desktop / non-touch) */
+      --joy-left: 16px;
+      --joy-bottom: 18px;
+      --joy-size: 120px;
+      --knob-size: 48px;
 
-      /* Mobile UI placement (tweak here) */
-      --joySize: 140px;
-      --joyLeft: 22vw;        /* rightward (closer to center) */
-      --joyBottom: 34px;      /* lower (closer to bottom) */
-      --btnRight: 22px;
-      --btnBottom: 44px;
-      --boostSize: 82px;
+      --btn-right: 18px;
+      --btn-bottom: 28px;
+      --btn-size: 72px;
+
+      --safe-left: env(safe-area-inset-left);
+      --safe-right: env(safe-area-inset-right);
+      --safe-bottom: env(safe-area-inset-bottom);
     }
 
     html,body{
       margin:0;padding:0;
-      width:100%;
       height:100%;
       overflow:hidden;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: auto;
       font-family:Arial,sans-serif;
       background: linear-gradient(135deg, #1a1a1a 0%, #111 100%);
       color:white;
-      touch-action:none; /* important */
+      -webkit-text-size-adjust: 100%;
+      overscroll-behavior: none;             /* Android / modern */
+      overscroll-behavior-y: none;
     }
     body{
-      position:fixed;
-      inset:0;
-      -webkit-user-select:none;
-      user-select:none;
-      -webkit-touch-callout:none;
+      position:fixed; inset:0;
+      touch-action:none;                      /* reduce iOS/Android scroll gestures */
     }
 
-    canvas{ display:block; outline:none; touch-action:none; }
+    canvas{
+      display:block;
+      outline:none;
+      touch-action:none;
+    }
 
     #menu{
       position:fixed;inset:0;
@@ -48,12 +51,14 @@
       background: rgba(0,0,0,0.82);
       gap:14px;text-align:center;padding:24px;box-sizing:border-box;
       z-index:30;
+      touch-action:none;
     }
-    /* Scope menu button styles so they don't affect boost button */
-    #menu button{
+
+    button{
       font-size:24px;padding:15px 40px;cursor:pointer;border:none;background:lime;color:black;border-radius:10px;
+      -webkit-tap-highlight-color:transparent;
     }
-    #menu button:hover{background:#7CFF7C;}
+    button:hover{background:#7CFF7C;}
 
     .hud{
       position:fixed;left:12px;top:10px;z-index:25;
@@ -65,17 +70,23 @@
     #touchUI{
       position:fixed; inset:0; z-index:20;
       display:none;
-      pointer-events:none;
+      pointer-events:none; /* only inner controls clickable */
       touch-action:none;
     }
 
     #joyWrap{
       position:absolute;
-      left: max(16px, var(--safeL));
-      bottom: calc(18px + var(--safeB));
-      width:120px; height:120px;
-      pointer-events:auto; touch-action:none;
+      left: calc(var(--joy-left) + var(--safe-left));
+      bottom: calc(var(--joy-bottom) + var(--safe-bottom));
+      width: var(--joy-size);
+      height: var(--joy-size);
+      pointer-events:auto;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+      -webkit-touch-callout:none;
     }
+
     #joyBase{
       width:100%; height:100%;
       border-radius:999px;
@@ -84,10 +95,13 @@
       backdrop-filter: blur(4px);
       position:relative;
     }
+
     #joyKnob{
       position:absolute; left:50%; top:50%;
-      width:48px; height:48px;
-      margin-left:-24px; margin-top:-24px;
+      width: var(--knob-size);
+      height: var(--knob-size);
+      margin-left: calc(var(--knob-size) / -2);
+      margin-top:  calc(var(--knob-size) / -2);
       border-radius:999px;
       background:rgba(255,255,255,0.22);
       border:1px solid rgba(255,255,255,0.25);
@@ -97,9 +111,15 @@
     }
 
     #btnWrap{
-      position:absolute; right:18px; bottom:28px;
+      position:absolute;
+      right: calc(var(--btn-right) + var(--safe-right));
+      bottom: calc(var(--btn-bottom) + var(--safe-bottom));
       display:flex; flex-direction:column; gap:12px;
-      pointer-events:auto; touch-action:none;
+      pointer-events:auto;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+      -webkit-touch-callout:none;
     }
 
     #boostBtn,.boostBtn{
@@ -108,59 +128,52 @@
       -webkit-tap-highlight-color:transparent;
       outline:none; -webkit-appearance:none; appearance:none;
       caret-color:transparent;
-      border:none;
-      background:none;
-      padding:0;
-      margin:0;
+      touch-action:none;
     }
     #boostBtn:focus,#boostBtn:focus-visible{ outline:none; }
 
-    /* Always yellow + transparent (no green, no gradient) */
+    /* Always yellow + semi-transparent (no green state) */
     .boostBtn{
-      width:72px; height:72px; border-radius:999px;
+      width: var(--btn-size);
+      height: var(--btn-size);
+      border-radius:999px;
       display:flex; align-items:center; justify-content:center;
       font-size:32px; font-weight:700;
-      background: rgba(245,196,0,0.50);
-      color: rgba(17,17,17,0.92);
-      border: 1px solid rgba(255,255,255,0.22);
-      box-shadow: 0 10px 22px rgba(0,0,0,.30), inset 0 2px 4px rgba(255,255,255,.22);
-      -webkit-tap-highlight-color: transparent;
+      background: radial-gradient(circle at 30% 30%, rgba(255,224,102,0.92), rgba(245,196,0,0.92));
+      color:#111;
+      border:1px solid rgba(255,255,255,0.22);
+      box-shadow: 0 10px 22px rgba(0,0,0,.35), inset 0 2px 4px rgba(255,255,255,.30);
+      opacity: 0.72;                /* прозрачная постоянно */
       backdrop-filter: blur(2px);
     }
     .boostBtn .icon{ display:block; line-height:1; pointer-events:none; user-select:none; }
     .boostBtn:active{
       transform: scale(0.96);
-      background: rgba(245,196,0,0.62);
-      box-shadow: 0 6px 14px rgba(0,0,0,.30), inset 0 1px 3px rgba(255,255,255,.22);
+      opacity: 0.82;
+      box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 3px rgba(255,255,255,.28);
     }
 
+    /* Mobile layout: move joystick closer to center, and raise both controls */
     @media (pointer:coarse){
-      .hud{top:8px;left:10px;font-size:12px;opacity:.78;}
+      :root{
+        /* joystick: noticeably more to the center than corner */
+        --joy-left: clamp(16px, 18vw, 170px);
+        --joy-bottom: clamp(70px, 13vh, 160px);
+        --joy-size: 150px;
+        --knob-size: 56px;
 
-      /* Move joystick closer to center and lower */
-      #joyWrap{
-        width: var(--joySize);
-        height: var(--joySize);
-        left: calc(var(--joyLeft) + var(--safeL));
-        bottom: calc(var(--joyBottom) + var(--safeB));
-      }
-      #joyKnob{
-        width:54px; height:54px;
-        margin-left:-27px; margin-top:-27px;
+        /* boost button: mirror on right, similar height */
+        --btn-right: clamp(16px, 9vw, 120px);
+        --btn-bottom: clamp(80px, 14vh, 170px);
+        --btn-size: 86px;
       }
 
-      #btnWrap{
-        right: calc(var(--btnRight) + var(--safeR));
-        bottom: calc(var(--btnBottom) + var(--safeB));
-      }
-      .boostBtn{
-        width: var(--boostSize);
-        height: var(--boostSize);
-        font-size:36px;
-      }
+      .hud{ top:8px; left:10px; font-size:12px; opacity:.78; }
+      button{ font-size:22px; }
     }
   </style>
 </head>
+
 <body>
   <div id="menu">
     <h1>🐍 Snake</h1>
@@ -174,6 +187,7 @@
     <div id="joyWrap">
       <div id="joyBase"><div id="joyKnob"></div></div>
     </div>
+
     <div id="btnWrap">
       <button id="boostBtn" class="boostBtn" aria-label="Ускорение">
         <span class="icon" aria-hidden="true">⚡</span>
@@ -225,6 +239,20 @@ const isTouchDevice =
   ("ontouchstart" in window) ||
   (navigator.maxTouchPoints > 0);
 
+/* ==== safety: prevent iOS page pull/scroll while playing and while joystick active ==== */
+let preventScroll = false;
+function stopEvt(e){
+  if(!e) return;
+  e.preventDefault?.();
+  e.stopPropagation?.();
+}
+document.addEventListener("touchmove", (e)=>{
+  if(preventScroll) stopEvt(e);
+}, {passive:false});
+document.addEventListener("gesturestart", (e)=>stopEvt(e), {passive:false});
+document.addEventListener("gesturechange",(e)=>stopEvt(e), {passive:false});
+document.addEventListener("gestureend",   (e)=>stopEvt(e), {passive:false});
+
 function wsUrl(path){
   return `wss://${location.host}${path}`;
 }
@@ -244,10 +272,10 @@ function normAngle(a){
 
 /* SCALE */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_SNAKE_SCALE  = 0.92;   // a bit bigger on phones
+const MOBILE_SNAKE_SCALE  = 1.05;   // bigger snake on phones
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-const MOBILE_VIEW_ZOOM = 0.98;      // slightly closer camera on phones
+const MOBILE_VIEW_ZOOM = 1.00;       // a bit closer than before
 let VIEW_ZOOM = 1;
 
 /* FPS */
@@ -316,7 +344,6 @@ function fitCanvas(){
   const w = vv ? Math.round(vv.width)  : innerWidth;
   const h = vv ? Math.round(vv.height) : innerHeight;
   VIEW_W = w; VIEW_H = h;
-
   if(isTouchDevice){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.style.width = w + "px";
@@ -579,8 +606,10 @@ function drawSnakeRibbon(renderSnake, color, boost, isMe, timeMs){
 const remote = {};
 const REMOTE_PATH_MAX = 1400;
 
+/* FIX: float length -> tail point placed at exact tail distance */
 function buildSnakeFromPath(path, lengthUnits){
   const lu = Math.max(1, +lengthUnits || 1);
+
   const tailDist = Math.max(0, (lu - 1) * SEG_DIST);
   const nPoints = Math.max(1, Math.floor(tailDist / SEG_DIST) + 2);
 
@@ -604,10 +633,13 @@ function buildSnakeFromPath(path, lengthUnits){
     while(nextMark <= acc + segLen + 1e-6){
       const t = (nextMark - acc) / segLen;
       out.push({ x: a.x + dx*t, y: a.y + dy*t });
+
       if(nextMark >= tailDist - 1e-6) return out;
+
       nextMark += SEG_DIST;
       if(nextMark > tailDist) nextMark = tailDist;
     }
+
     acc += segLen;
   }
 
@@ -625,6 +657,7 @@ function snakePointsFromFlatBody(bodyFlat){
   return out;
 }
 
+/* ===== LENGTH-SAFE HELPERS ===== */
 function padToLen(snake, n){
   if(!snake) return snake;
   const m = snake.length|0;
@@ -635,10 +668,11 @@ function padToLen(snake, n){
   return out;
 }
 
-/* render-in-the-past interpolation (a bit more delay on phones for calmer motion) */
-const INTERP_DELAY_MS = isTouchDevice ? 220 : 160;
+/* ===== render-in-the-past interpolation ===== */
+const INTERP_DELAY_MS = isTouchDevice ? 230 : 160;  // more stable on phones
 const SNAP_MAX = 12;
 
+/* snaps stored as Float32Array */
 function snakeToFlatF32(snake){
   const n = snake.length|0;
   const out = new Float32Array(n * 2);
@@ -713,7 +747,7 @@ function interpSnakeFromSnaps(snaps, renderTime){
   return flatF32ToPoints(out);
 }
 
-/* smoothing cache */
+/* ===== length-safe smoothing ===== */
 const renderCache = {};
 function smoothSnake(id, targetSnake, alpha){
   if(!targetSnake || targetSnake.length === 0) return targetSnake;
@@ -778,15 +812,17 @@ function sendDirection(nx, ny){
 function getMyHeadWorld(){
   const cached = renderCache[playerId];
   if(cached && cached.length) return cached[0];
+
   const r = remote[playerId];
   if(r?.head) return r.head;
+
   return null;
 }
 
-/* assist magnet */
-const MAGNET_RADIUS = 240;
-const MAGNET_MAX = 0.22;
-const MAGNET_WHEN_BOOST = 0.35;
+/* assist (slightly weaker on mobile) */
+const MAGNET_RADIUS = isTouchDevice ? 190 : 240;
+const MAGNET_MAX = isTouchDevice ? 0.16 : 0.22;
+const MAGNET_WHEN_BOOST = isTouchDevice ? 0.24 : 0.35;
 
 function findNearestFoodDir(head){
   if(!head || !foods || !foods.length) return null;
@@ -803,6 +839,7 @@ function findNearestFoodDir(head){
       best = {dx, dy, d2};
     }
   }
+
   if(!best) return null;
 
   const d = Math.sqrt(best.d2) || 1;
@@ -944,25 +981,31 @@ function sendBoost(state){
   ws.send(JSON.stringify({boost: state}));
 }
 
-/* FOOD pop + visuals */
+/* FOOD pop */
 const foodBirth = new Map();
-const foodVis = new Map();
-const FOOD_POP_MS = 380;
+const foodVis = new Map(); // key -> {x,y}
 
 function expLerpFactor(dtMs, tauMs){
   return 1 - Math.exp(-dtMs / Math.max(1, tauMs));
 }
+
 function getFoodVis(key, tx, ty){
   let v = foodVis.get(key);
-  if(!v){ v = { x: tx, y: ty }; foodVis.set(key, v); }
+  if(!v){
+    v = { x: tx, y: ty };
+    foodVis.set(key, v);
+  }
   return v;
 }
+
 function cleanupFoodVis(currentFoods){
   const alive = new Set(currentFoods.map(foodKey));
   for(const k of foodVis.keys()){
     if(!alive.has(k)) foodVis.delete(k);
   }
 }
+const FOOD_POP_MS = 380;
+
 function foodKey(f){
   const x = (f && typeof f.x === "number") ? f.x : 0;
   const y = (f && typeof f.y === "number") ? f.y : 0;
@@ -994,10 +1037,10 @@ function easeOutCubic(t){
 const FOOD_WOBBLE_PX = 7.5;
 const FOOD_WOBBLE_SPEED = 0.0036;
 
-/* VACUUM (visual only) */
-const SUCTION_RADIUS   = 95;
-const SUCTION_KILL     = 28;
-const SUCTION_PULL_PX  = 18.0;
+/* VACUUM (visual only): tightened on mobile (so it doesn't look like "eats from far") */
+const SUCTION_RADIUS   = isTouchDevice ? 66 : 95;
+const SUCTION_KILL     = isTouchDevice ? 22 : 28;
+const SUCTION_PULL_PX  = isTouchDevice ? 12.5 : 18.0;
 
 /* hash */
 function hash01(str){
@@ -1044,8 +1087,8 @@ function draw(ts){
   if(meR && meR.snaps && meR.snaps.length){
     const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
     if(meI && meI.length){
-      /* slower visual snake on phones: higher tau */
-      const meSmoothTau = isTouchDevice ? 95 : 35;
+      /* slower visual smoothing on mobile (so it doesn't look "too fast") */
+      const meSmoothTau = isTouchDevice ? 92 : 35; // bigger => slower visually
       const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);
       const smoothMe = smoothSnake(playerId, meI, alphaMe);
       renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
@@ -1120,6 +1163,7 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
   }
 
   updateCamera(meRender);
+
   cleanupFoodVis(foods);
 
   /* FOOD DRAW */
@@ -1145,9 +1189,11 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       }
     }
 
+    // ---- TARGET position (raw) ----
     let tx = f.x;
     let ty = f.y;
 
+    // wobble on target
     const key = foodKey(f);
     const seed = hash01(key);
     const t0 = timeMs * FOOD_WOBBLE_SPEED + seed * 10.0;
@@ -1156,7 +1202,9 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     tx += (Math.sin(t0) + 0.55*Math.sin(t1 + 1.3)) * (FOOD_WOBBLE_PX * 0.70);
     ty += (Math.cos(t0 * 0.92 + 1.7) + 0.55*Math.cos(t1 * 0.88 + 2.2)) * (FOOD_WOBBLE_PX * 0.70);
 
+    // suction affects target (NOT directly drawn pos)
     let suctionK = 0;
+
     if(meRender && meRender.length){
       const hx = meRender[0].x, hy = meRender[0].y;
       const dxh = hx - tx, dyh = hy - ty;
@@ -1183,12 +1231,15 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
       }
     }
 
+    // ---- SMOOTH visual position toward target ----
     const vis = getFoodVis(key, tx, ty);
-    const tau = lerp(90, 35, suctionK);
+    const tau = lerp(95, 40, suctionK);
     const kL = expLerpFactor(dtFrame, tau);
+
     vis.x = vis.x + (tx - vis.x) * kL;
     vis.y = vis.y + (ty - vis.y) * kL;
 
+    // draw from smoothed pos
     const x = sx(vis.x);
     const y = sy(vis.y);
 
@@ -1266,17 +1317,6 @@ function cloneSnakePoints(s){
   return s.map(p => ({x: p.x, y: p.y}));
 }
 
-/* SAFER TOUCH: block page/viewport pulling while playing on mobile */
-let blockTouchScroll = false;
-function touchBlocker(e){
-  if(!blockTouchScroll) return;
-  e.preventDefault();
-}
-document.addEventListener("touchmove", touchBlocker, { passive:false });
-document.addEventListener("gesturestart", touchBlocker, { passive:false });
-document.addEventListener("gesturechange", touchBlocker, { passive:false });
-document.addEventListener("gestureend", touchBlocker, { passive:false });
-
 function startGame(){
   deathAtMs = null;
   if(deathMenuTimer){ clearTimeout(deathMenuTimer); deathMenuTimer = null; }
@@ -1324,11 +1364,11 @@ function startGame(){
     useMouse = false;
     touchUI.style.display = "block";
     touchUI.setAttribute("aria-hidden","false");
-    blockTouchScroll = true;   // important
+    preventScroll = true;               // key: stop page pull while playing on mobile
   } else {
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
-    blockTouchScroll = false;
+    preventScroll = false;
   }
 
   fitCanvas();
@@ -1380,6 +1420,7 @@ function startGame(){
         canvas.style.display="none";
         hud.style.display="none";
         menu.style.display="flex";
+        preventScroll = false;
       }, DEATH_HOLD_MS);
 
       return;
@@ -1495,10 +1536,9 @@ function startGame(){
     if(rttTimer){ clearInterval(rttTimer); rttTimer = null; }
     if(inputTimer){ clearInterval(inputTimer); inputTimer = null; }
     sendBoost(false);
-
     touchUI.style.display = "none";
     touchUI.setAttribute("aria-hidden","true");
-    blockTouchScroll = false;
+    preventScroll = false;
 
     if(dead) return;
 
@@ -1581,13 +1621,19 @@ window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
 /* INPUT (MOBILE): joystick + boost */
-const joy = { active:false, pid:null, radius:58, x:0, y:0 };
-function setKnob(dx, dy){ joyKnob.style.transform = `translate(${dx}px, ${dy}px)`; }
+const joy = { active:false, pid:null, radius:56, x:0, y:0 };
+
+function setKnob(dx, dy){
+  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+
 function joyReset(){
   joy.active = false; joy.pid = null;
-  joy.x = joy.y = 0; setKnob(0,0);
+  joy.x = joy.y = 0;
+  setKnob(0,0);
   touchTargetHeading = heading;
 }
+
 function joyUpdateFromPointer(clientX, clientY){
   const rect = joyWrap.getBoundingClientRect();
   const cx = rect.left + rect.width/2;
@@ -1616,21 +1662,22 @@ joyWrap.addEventListener("pointerdown", (e)=>{
   joy.pid = e.pointerId;
   joyWrap.setPointerCapture(e.pointerId);
   joyUpdateFromPointer(e.clientX, e.clientY);
-  e.preventDefault();
+  preventScroll = true;
+  stopEvt(e);
 }, {passive:false});
 
 joyWrap.addEventListener("pointermove", (e)=>{
   if(!useTouch || !joy.active) return;
   if(e.pointerId !== joy.pid) return;
   joyUpdateFromPointer(e.clientX, e.clientY);
-  e.preventDefault();
+  stopEvt(e);
 }, {passive:false});
 
 function joyEnd(e){
   if(!useTouch || !joy.active) return;
   if(e && e.pointerId != null && e.pointerId !== joy.pid) return;
   joyReset();
-  e?.preventDefault?.();
+  stopEvt(e);
 }
 joyWrap.addEventListener("pointerup", joyEnd, {passive:false});
 joyWrap.addEventListener("pointercancel", joyEnd, {passive:false});
@@ -1641,25 +1688,26 @@ function bindHoldButton(btn, onDown, onUp){
     if(!useTouch) return;
     onDown();
     btn.setPointerCapture(e.pointerId);
-    e.preventDefault();
+    preventScroll = true;
+    stopEvt(e);
   }, {passive:false});
 
   btn.addEventListener("pointerup", (e)=>{
     if(!useTouch) return;
     onUp();
-    e.preventDefault();
+    stopEvt(e);
   }, {passive:false});
 
   btn.addEventListener("pointercancel", (e)=>{
     if(!useTouch) return;
     onUp();
-    e.preventDefault();
+    stopEvt(e);
   }, {passive:false});
 
   btn.addEventListener("lostpointercapture", (e)=>{
     if(!useTouch) return;
     onUp();
-    e.preventDefault();
+    stopEvt(e);
   }, {passive:false});
 }
 bindHoldButton(boostBtn, ()=>sendBoost(true), ()=>sendBoost(false));
