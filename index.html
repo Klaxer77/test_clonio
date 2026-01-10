@@ -38,10 +38,12 @@
       touch-action:none;
     }
     #joyWrap{
-      position:absolute; left:16px; bottom:18px;
-      width:120px; height:120px;
-      pointer-events:auto; touch-action:none;
-    }
+  position:absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  width:120px; height:120px;
+  pointer-events:auto; touch-action:none;
+}
     #joyBase{
       width:100%; height:100%;
       border-radius:999px;
@@ -89,8 +91,21 @@
       transform: scale(0.96);
       box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 3px rgba(255,255,255,.35);
     }
+    /* мобильная настройка: выше и не так в угол */
     @media (pointer:coarse){
-      .hud{top:8px;left:10px;font-size:12px;opacity:.78;}
+    #joyWrap{
+        left: max(20px, env(safe-area-inset-left));
+        bottom: calc(110px + env(safe-area-inset-bottom)); /* было 18px */
+        width:140px; height:140px; /* чуть крупнее */
+    }
+    #btnWrap{
+        right: max(20px, env(safe-area-inset-right));
+        bottom: calc(120px + env(safe-area-inset-bottom)); /* было 28px */
+    }
+    .boostBtn{
+        width:84px; height:84px; /* чуть больше */
+        font-size:36px;
+    }
     }
   </style>
 </head>
@@ -177,10 +192,10 @@ function normAngle(a){
 
 /* SCALE */
 const DESKTOP_SNAKE_SCALE = 1.35;
-const MOBILE_SNAKE_SCALE  = 0.60;
+const MOBILE_SNAKE_SCALE  = 0.88;
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-const MOBILE_VIEW_ZOOM = 0.82;
+const MOBILE_VIEW_ZOOM = 0.95;
 let VIEW_ZOOM = 1;
 
 /* FPS */
@@ -574,7 +589,7 @@ function padToLen(snake, n){
 }
 
 /* ===== render-in-the-past interpolation ===== */
-const INTERP_DELAY_MS = 160;
+const INTERP_DELAY_MS = isTouchDevice ? 190 : 160;
 const SNAP_MAX = 12;
 
 /* snaps stored as Float32Array */
@@ -994,7 +1009,8 @@ function draw(ts){
   if(meR && meR.snaps && meR.snaps.length){
     const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
     if(meI && meI.length){
-      const alphaMe = 1 - Math.exp(-dtFrame / 35);
+      const meSmoothTau = isTouchDevice ? 60 : 35; // больше = медленнее визуально
+      const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);
       const smoothMe = smoothSnake(playerId, meI, alphaMe);
       renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
     }
@@ -1546,7 +1562,7 @@ window.addEventListener("blur", () => sendBoost(false));
 document.addEventListener("visibilitychange", () => { if(document.hidden) sendBoost(false); });
 
 /* INPUT (MOBILE): joystick + boost */
-const joy = { active:false, pid:null, radius:48, x:0, y:0 };
+const joy = { active:false, pid:null, radius:56, x:0, y:0 };
 function setKnob(dx, dy){ joyKnob.style.transform = `translate(${dx}px, ${dy}px)`; }
 function joyReset(){
   joy.active = false; joy.pid = null;
