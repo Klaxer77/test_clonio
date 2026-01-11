@@ -56,8 +56,8 @@ TAIL_RADIUS_SCALE = 1.25
 EAT_RADIUS = SEGMENT * 0.70
 
 # ширина “хвата” (вбок)
-EAT_SIDE_MULT = 1.30   # 1.3..2.2
-EAT_FWD_MULT  = 1.10   # по длине не меняем
+EAT_SIDE_MULT = 2.0   # 1.3..2.2
+EAT_FWD_MULT  = 1.0   # по длине не меняем
 
 DEATH_SNAPSHOT_DELAY = 0.55
 DEATH_AFTER_DELAY    = 0.08
@@ -243,10 +243,10 @@ def can_eat(head_x: float, head_y: float, food: dict, u: dict) -> bool:
     fwd  = dx * ux + dy * uy
     side = dx * lx + dy * ly
 
-    a = EAT_RADIUS * EAT_FWD_MULT
-    b = EAT_RADIUS * EAT_SIDE_MULT
+    # Радиус по ширине увеличен, а по длине уменьшен
+    a = EAT_RADIUS * EAT_FWD_MULT  # Влияет на длину
+    b = EAT_RADIUS * EAT_SIDE_MULT  # Влияет на ширину
 
-    # Проверка на то, что еда находится в пределах изменённого радиуса
     return (fwd * fwd) / (a * a) + (side * side) / (b * b) <= 1.0
 
 
