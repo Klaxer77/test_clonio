@@ -194,7 +194,7 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function smoothstep01(t){
   t = clamp(t, 0, 1);
-  return t*t*(3 - 2*t);
+  return t * t * (3 - 2 * t);
 }
 function normAngle(a){
   while(a > Math.PI) a -= Math.PI*2;
@@ -805,18 +805,18 @@ function setDirUnit(nx, ny){
 let heading = 0;
 let angVel = 0;
 
-const TURN_BASE = 8.0;
-const TURN_FAST = 10.00;
-const TURN_SLOW = 2.25;
+const TURN_BASE = 10.0;
+const TURN_FAST = 15.00;
+const TURN_SLOW = 5.0;
 
-const TURN_TAU_MS = 75;
+const TURN_TAU_MS = 50;
 const TURN_STOP_TAU_MS = 105;
 
 const MOUSE_GAIN = 8.4;
-const MOUSE_TAU_MS = 34;
+const MOUSE_TAU_MS = 25;
 const MOUSE_DEADZONE_RAD = 0.005;
 
-const TOUCH_GAIN = 3.0;
+const TOUCH_GAIN = 5.0;
 const TOUCH_TAU_MS = 15;
 
 let mouseTargetHeading = null;
