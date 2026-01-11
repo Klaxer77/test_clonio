@@ -56,8 +56,8 @@ TAIL_RADIUS_SCALE = 1.25
 EAT_RADIUS = SEGMENT * 0.70
 
 # ширина “хвата” (вбок)
-EAT_SIDE_MULT = 2.0   # 1.3..2.2
-EAT_FWD_MULT  = 1.0   # по длине не меняем
+EAT_SIDE_MULT = 1.40   # 1.3..2.2
+EAT_FWD_MULT  = 0.40   # по длине не меняем
 
 DEATH_SNAPSHOT_DELAY = 0.55
 DEATH_AFTER_DELAY    = 0.08
