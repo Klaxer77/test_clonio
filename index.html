@@ -742,9 +742,9 @@ function getMyHeadWorld(){
 }
 
 /* ===== anti “tele-eat”: assist VERY close-range (weaker + shorter) ===== */
-const MAGNET_RADIUS = 45;
+const MAGNET_RADIUS = 30;  // Уменьшаем радиус магнитного притяжения
 const MAGNET_MAX = 0.028;
-const MAGNET_WHEN_BOOST = 0.035;
+const MAGNET_WHEN_BOOST = 0.035; // Снижена сила притяжения при ускорении
 
 function findNearestFoodDir(head){
   if(!head || !foods || !foods.length) return null;
@@ -765,7 +765,7 @@ function findNearestFoodDir(head){
   if(!best) return null;
 
   const d = Math.sqrt(best.d2) || 1;
-  const k = 1 - (d / MAGNET_RADIUS);
+  const k = (d < MAGNET_RADIUS * 0.7) ? 1 : (1 - (d / MAGNET_RADIUS));
   return { x: best.dx / d, y: best.dy / d, k };
 }
 
