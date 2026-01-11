@@ -242,29 +242,18 @@ function startRttPing(){
 
 /* RAF cap */
 const TARGET_CAP = 75;
-const rafMeter = { lastTs: null, samples: [], maxSamples: 90, hz: 60 };
-function updateRafHz(ts){
-  if(rafMeter.lastTs == null){ rafMeter.lastTs = ts; return; }
+let rafMeter = { lastTs: null, hz: 60 };
+function updateRafHz(ts) {
+  if (!rafMeter.lastTs) {
+    rafMeter.lastTs = ts;
+    return;
+  }
   const dt = ts - rafMeter.lastTs;
+  if (dt > 0) {
+    const instHz = 1000 / dt;
+    rafMeter.hz = Math.min(instHz, TARGET_CAP);
+  }
   rafMeter.lastTs = ts;
-  if(dt <= 0) return;
-  const instHz = 1000 / dt;
-  if(instHz < 10 || instHz > 400) return;
-  rafMeter.samples.push(instHz);
-  if(rafMeter.samples.length > rafMeter.maxSamples) rafMeter.samples.shift();
-  const a = rafMeter.samples.slice().sort((x,y)=>x-y);
-  const mid = a.length >> 1;
-  const med = a.length ? (a.length % 2 ? a[mid] : (a[mid-1]+a[mid])/2) : 60;
-  const snap = (v) => {
-    const presets = [50,60,75,90,100,120,144,165,180,240];
-    let best=v, bestD=1e9;
-    for(const p of presets){
-      const d = Math.abs(v-p);
-      if(d<bestD){ bestD=d; best=p; }
-    }
-    return (bestD <= 3.0) ? best : v;
-  };
-  rafMeter.hz = snap(med);
 }
 let capHz = 60;
 function getCapHz(){ return Math.min(rafMeter.hz || 60, TARGET_CAP); }
@@ -281,9 +270,9 @@ function fitCanvas(){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
-    canvas.width  = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    canvas.width = Math.floor(VIEW_W * dpr);
+    canvas.height = Math.floor(VIEW_H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
   } else {
     canvas.width = w;
@@ -671,6 +660,7 @@ function interpSnakeFromSnaps(snaps, renderTime) {
     for (let j = 0; j < n; j++) out[j] = lerp(fa[j], fb[j], k);
     return flatF32ToPoints(out);
 }
+
 
 
 /* smoothing */
