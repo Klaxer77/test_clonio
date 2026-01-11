@@ -121,7 +121,7 @@
 
   <div id="hud" class="hud" style="display:none"></div>
 
-  <!-- Важно: на старте прячем canvas, чтобы ничего не рисовалось под меню -->
+  <!-- На старте прячем canvas, чтобы под меню не было красной рамки и прочего -->
   <canvas id="game" tabindex="0" style="display:none"></canvas>
 
   <div id="touchUI" aria-hidden="true">
@@ -136,6 +136,7 @@
   </div>
 
 <script>
+/* hard stop: no page pull/zoom */
 document.addEventListener("touchmove", (e)=>{ e.preventDefault(); }, {passive:false});
 document.addEventListener("gesturestart", (e)=>{ e.preventDefault(); }, {passive:false});
 document.addEventListener("gesturechange",(e)=>{ e.preventDefault(); }, {passive:false});
@@ -201,6 +202,7 @@ function normAngle(a){
   return a;
 }
 
+/* ===== VIEW / SNAKE SIZE ===== */
 const DESKTOP_SNAKE_SCALE = 1.35;
 const MOBILE_VIEW_ZOOM    = 0.82;
 const MOBILE_SNAKE_SCALE  = 1.29;
@@ -209,6 +211,7 @@ let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
 let VIEW_ZOOM = 1;
 
+/* FPS */
 let lastFpsTs = performance.now();
 let frames = 0;
 let lowDetail = false;
@@ -226,6 +229,7 @@ function updateFpsOnRenderedFrame(timeMs){
   }
 }
 
+/* RTT */
 let rtt = 60;
 let rttTimer = null;
 function startRttPing(){
@@ -236,6 +240,7 @@ function startRttPing(){
   }, 800);
 }
 
+/* RAF cap */
 const TARGET_CAP = 75;
 const rafMeter = { lastTs: null, samples: [], maxSamples: 90, hz: 60 };
 function updateRafHz(ts){
@@ -264,6 +269,7 @@ function updateRafHz(ts){
 let capHz = 60;
 function getCapHz(){ return Math.min(rafMeter.hz || 60, TARGET_CAP); }
 
+/* CANVAS SIZE */
 let VIEW_W = innerWidth, VIEW_H = innerHeight;
 
 function fitCanvas(){
@@ -289,12 +295,14 @@ window.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("resize", fitCanvas);
 window.visualViewport?.addEventListener("scroll", fitCanvas);
 
+/* RENDER HELPERS */
 function bodyWidth(){ return SEGMENT * 0.95 * SNAKE_SCALE; }
 function headRadius(){ return bodyWidth() * 0.50; }
 function eyeWhiteR(){ return headRadius() * 0.38; }
 function eyePupilR(){ return eyeWhiteR() * 0.45; }
 function pupilShift(){ return eyeWhiteR() * 0.35; }
 
+/* CAMERA */
 let camHX = null, camHY = null;
 const CAM_SMOOTH = 0.18;
 function updateCamera(renderMeSnake){
@@ -409,6 +417,7 @@ function drawBackground(){
   ctx.restore();
 }
 
+/* EYES */
 function drawSnakeEyes(s, look){
   if(!s || s.length < 2) return;
   const h = s[0], n = s[1];
@@ -701,7 +710,6 @@ function normKey(k){
 
 let lastSent = 0;
 let lastDirSent = {x:1, y:0};
-let wantDirUnit = {x:1, y:0};
 
 const SEND_EPS2 = 0.00025;
 const SEND_MIN_MS = 20;
@@ -733,10 +741,10 @@ function getMyHeadWorld(){
   return null;
 }
 
-/* ===== anti “tele-eat”: assist VERY close-range ===== */
-const MAGNET_RADIUS = 85;
-const MAGNET_MAX = 0.06;
-const MAGNET_WHEN_BOOST = 0.08;
+/* ===== anti “tele-eat”: assist VERY close-range (weaker + shorter) ===== */
+const MAGNET_RADIUS = 45;
+const MAGNET_MAX = 0.028;
+const MAGNET_WHEN_BOOST = 0.035;
 
 function findNearestFoodDir(head){
   if(!head || !foods || !foods.length) return null;
@@ -762,12 +770,15 @@ function findNearestFoodDir(head){
 }
 
 function applyMagnetToDir(nx, ny){
+  // На ПК с мышью магнит лучше отключить, чтобы не было ощущения “само ест”
+  if(!isTouchDevice && useMouse) return {nx, ny};
+
   const head = getMyHeadWorld();
   const t = findNearestFoodDir(head);
   if(!t) return {nx, ny};
 
   const k = smoothstep01(t.k);
-  if(k < 0.45) return {nx, ny};
+  if(k < 0.62) return {nx, ny}; // включается только очень близко
 
   const boostMul = serverBoosting ? MAGNET_WHEN_BOOST : 1.0;
   const m = MAGNET_MAX * k * boostMul;
@@ -951,9 +962,10 @@ function easeOutCubic(t){
 const FOOD_WOBBLE_PX = 7.5;
 const FOOD_WOBBLE_SPEED = 0.0036;
 
-const SUCTION_RADIUS   = 32;
-const SUCTION_KILL     = 10;
-const SUCTION_PULL_PX  = 5.5;
+/* VACUUM visual (close-range ONLY) — tighter + stronger on PC */
+const SUCTION_RADIUS   = 22;
+const SUCTION_KILL     = 7;
+const SUCTION_PULL_PX  = 6.2;
 
 function hash01(str){
   let h = 2166136261;
@@ -1073,7 +1085,7 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     const key = foodKey(f);
     const seed = hash01(key);
 
-    // обычная еда чуть плавает, corpse — стоит
+    // обычная еда чуть плавает, corpse — по позиции стоит (но светится)
     if(!isCorpse){
       const t0 = timeMs * FOOD_WOBBLE_SPEED + seed * 10.0;
       const t1 = timeMs * (FOOD_WOBBLE_SPEED * 0.55) + seed * 3.0;
@@ -1094,7 +1106,8 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
         const inv = 1 / dist;
         const ux = dxh * inv, uy = dyh * inv;
 
-        const maxStep = SUCTION_PULL_PX * (0.25 + 0.75*suctionK);
+        const pcMul = isTouchDevice ? 1.0 : 1.45;
+        const maxStep = SUCTION_PULL_PX * pcMul * (0.20 + 1.10*suctionK);
         const need = Math.max(0, dist - SUCTION_KILL);
         const step = Math.min(maxStep, need);
 
@@ -1132,7 +1145,7 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     ctx.save();
 
     if(isCorpse){
-      // пульс свечения (позиция при этом статична)
+      // пульс свечения (corpse по позиции стоит)
       const pulse = 0.65 + 0.35*Math.sin(timeMs * 0.008 + seed * 6.0);
       ctx.globalAlpha = alphaMul;
       if(corpseGlowBudget > 0){
@@ -1168,7 +1181,7 @@ FPS: ${fps} | Cap: ${Math.round(capHz)} | RTT≈${Math.round(rtt)}ms | Уско�
     drawSnakeRibbon(rp.snake, rp.color, rp.boost, id === playerId, timeMs);
   }
 
-  // Граница мира: только когда игра запущена (меню скрыто)
+  // Красная рамка мира — только в игре (когда меню скрыто)
   const inGame = (menu.style.display === "none");
   if(inGame){
     ctx.save();
@@ -1287,9 +1300,6 @@ function startGame(){
 
       const now = performance.now();
       if(deathAtMs == null) deathAtMs = now;
-
-      const cached = renderCache[playerId];
-      const snake = cloneSnakePoints(cached && cached.length ? cached : null);
 
       if(deathMenuTimer) clearTimeout(deathMenuTimer);
       deathMenuTimer = setTimeout(()=>{
@@ -1559,6 +1569,7 @@ function bindHoldButton(btn, onDown, onUp){
 }
 bindHoldButton(boostBtn, ()=>sendBoost(true), ()=>sendBoost(false));
 
+/* START */
 playBtn.addEventListener("click", startGame);
 fitCanvas();
 requestAnimationFrame(draw);
