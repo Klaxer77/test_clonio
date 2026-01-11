@@ -243,10 +243,10 @@ def can_eat(head_x: float, head_y: float, food: dict, u: dict) -> bool:
     fwd  = dx * ux + dy * uy
     side = dx * lx + dy * ly
 
-    # Радиус по ширине увеличен, а по длине уменьшен
-    a = EAT_RADIUS * EAT_FWD_MULT  # Влияет на длину
-    b = EAT_RADIUS * EAT_SIDE_MULT  # Влияет на ширину
+    a = EAT_RADIUS * EAT_FWD_MULT
+    b = EAT_RADIUS * EAT_SIDE_MULT
 
+    # Проверка на то, что еда находится в пределах изменённого радиуса
     return (fwd * fwd) / (a * a) + (side * side) / (b * b) <= 1.0
 
 
