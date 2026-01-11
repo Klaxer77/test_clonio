@@ -205,11 +205,11 @@ function normAngle(a){
 /* ===== VIEW / SNAKE SIZE ===== */
 const DESKTOP_SNAKE_SCALE = 1.35;
 const MOBILE_VIEW_ZOOM    = 0.82;
-const MOBILE_SNAKE_SCALE  = 1.29;
+const MOBILE_SNAKE_SCALE  = 1.5;
 
 let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-let VIEW_ZOOM = 1;
+let VIEW_ZOOM = 1.5;
 
 /* FPS */
 let lastFpsTs = performance.now();
@@ -853,9 +853,9 @@ function applySteeringKeyboard(dtMs){
   setDirUnit(Math.cos(heading), Math.sin(heading));
 }
 
-function applySteeringPointer(dtMs){
+function applySteeringPointer(dtMs) {
   const target = useTouch ? touchTargetHeading : mouseTargetHeading;
-  if(target == null) return;
+  if (target == null) return;
 
   const err = normAngle(target - heading);
   const maxVel = TURN_FAST;
@@ -864,39 +864,26 @@ function applySteeringPointer(dtMs){
   const tau  = useTouch ? TOUCH_TAU_MS : MOUSE_TAU_MS;
 
   let targetAngVel = 0;
-  if(Math.abs(err) > MOUSE_DEADZONE_RAD){
+  if (Math.abs(err) > MOUSE_DEADZONE_RAD) {
     targetAngVel = clamp(err * gain, -maxVel, +maxVel);
+  }
+
+  // Check if the new direction is opposite to the current direction
+  const currentDirection = { x: Math.cos(heading), y: Math.sin(heading) };
+  const newDirection = { x: Math.cos(target), y: Math.sin(target) };
+
+  const dotProduct = currentDirection.x * newDirection.x + currentDirection.y * newDirection.y;
+
+  // If the dot product is close to -1, the directions are opposite. In this case, don't allow the turn.
+  if (dotProduct < -0.9) {
+    targetAngVel = 0; // Ignore the input if it's an opposite direction
   }
 
   const k = 1 - Math.exp(-dtMs / tau);
   angVel = angVel + (targetAngVel - angVel) * k;
+
   heading += angVel * (dtMs / 1000);
   setDirUnit(Math.cos(heading), Math.sin(heading));
-}
-
-function applySteering(dtMs){
-  if(!ws || ws.readyState !== 1) return;
-  if(dead) return;
-  if(useTouch) applySteeringPointer(dtMs);
-  else if(useMouse) applySteeringPointer(dtMs);
-  else applySteeringKeyboard(dtMs);
-}
-
-let inputTimer = null;
-let lastInputTs = null;
-function startInputHeartbeat(){
-  if(inputTimer) clearInterval(inputTimer);
-  lastInputTs = performance.now();
-  inputTimer = setInterval(()=>{
-    if(!ws || ws.readyState !== 1) return;
-    if(dead) return;
-    const now = performance.now();
-    let dt = now - lastInputTs;
-    lastInputTs = now;
-    if(dt < 1) dt = 1;
-    if(dt > 40) dt = 40;
-    applySteering(dt);
-  }, 16);
 }
 
 function sendBoost(state){
