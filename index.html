@@ -45,14 +45,14 @@
 
     /* === MOBILE POSITIONS: lower (closer to bottom), same height left/right === */
     #joyWrap{
-      position:absolute;
-      pointer-events:auto; touch-action:none;
-      left: max(16px, env(safe-area-inset-left));
-      bottom: calc(26px + env(safe-area-inset-bottom));
-      width:150px; height:150px;
-      -webkit-user-select:none; user-select:none;
-      -webkit-tap-highlight-color:transparent;
-    }
+        position:absolute;
+        pointer-events:auto; touch-action:none;
+        left: max(24px, env(safe-area-inset-left)); /* было 16px */
+        bottom: calc(26px + env(safe-area-inset-bottom));
+        width:150px; height:150px;
+        -webkit-user-select:none; user-select:none;
+        -webkit-tap-highlight-color:transparent;
+        }
     #joyBase{
       width:100%; height:100%;
       border-radius:999px;
