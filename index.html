@@ -42,14 +42,14 @@
       touch-action:none;
     }
 
-    #joyWrap{
-      position:absolute;
-      pointer-events:auto; touch-action:none;
-      left: max(39px, env(safe-area-inset-left));
-      bottom: calc(26px + env(safe-area-inset-bottom));
-      width:150px; height:150px;
-      -webkit-user-select:none; user-select:none;
-      -webkit-tap-highlight-color:transparent;
+    #joyBase {
+      width:100%;
+      height:100%;
+      border-radius:999px;
+      background:rgba(255,255,255,0.10);
+      border:1px solid rgba(255,255,255,0.18);
+      backdrop-filter: blur(4px);
+      position:relative;
     }
     #joyBase{
       width:100%; height:100%;
@@ -207,9 +207,9 @@ const DESKTOP_SNAKE_SCALE = 1.35;
 const MOBILE_VIEW_ZOOM    = 0.82;
 const MOBILE_SNAKE_SCALE  = 1.5;
 
-let SNAKE_SCALE = DESKTOP_SNAKE_SCALE;
+let SNAKE_SCALE = isTouchDevice ? MOBILE_SNAKE_SCALE : DESKTOP_SNAKE_SCALE;
 let GRID_STEP = Math.round(SEGMENT * 2.4);
-let VIEW_ZOOM = 1.5;
+let VIEW_ZOOM = isTouchDevice ? MOBILE_VIEW_ZOOM : 1;
 
 /* FPS */
 let lastFpsTs = performance.now();
