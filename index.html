@@ -643,60 +643,56 @@ function pushSnap(r, snake, timeMs){
   if(r.snaps.length > SNAP_MAX) r.snaps.shift();
 }
 
-function interpSnakeFromSnaps(snaps, renderTime){
-  if(!snaps || snaps.length === 0) return null;
-  if(snaps.length === 1) return flatF32ToPoints(snaps[0].flat);
+function interpSnakeFromSnaps(snaps, renderTime) {
+    if (!snaps || snaps.length === 0) return null;
+    if (snaps.length === 1) return flatF32ToPoints(snaps[0].flat);
 
-  if(renderTime <= snaps[0].t) return flatF32ToPoints(snaps[0].flat);
-  const last = snaps[snaps.length - 1];
-  if(renderTime >= last.t) return flatF32ToPoints(last.flat);
+    if (renderTime <= snaps[0].t) return flatF32ToPoints(snaps[0].flat);
+    const last = snaps[snaps.length - 1];
+    if (renderTime >= last.t) return flatF32ToPoints(last.flat);
 
-  let i = snaps.length - 2;
-  while(i >= 0 && snaps[i].t > renderTime) i--;
-  i = Math.max(0, i);
+    let i = snaps.length - 2;
+    while (i >= 0 && snaps[i].t > renderTime) i--;
+    i = Math.max(0, i);
 
-  const a = snaps[i];
-  const b = snaps[i + 1] || a;
-  const span = Math.max(1, b.t - a.t);
-  const k = Math.max(0, Math.min(1, (renderTime - a.t) / span));
+    const a = snaps[i];
+    const b = snaps[i + 1] || a;
+    const span = Math.max(1, b.t - a.t);
+    const k = Math.max(0, Math.min(1, (renderTime - a.t) / span));
 
-  let fa = a.flat, fb = b.flat;
-  if(!fa || !fb) return null;
+    let fa = a.flat, fb = b.flat;
+    if (!fa || !fb) return null;
 
-  const n = Math.max(fa.length, fb.length);
-  fa = padFlatToLen(fa, n);
-  fb = padFlatToLen(fb, n);
+    const n = Math.max(fa.length, fb.length);
+    fa = padFlatToLen(fa, n);
+    fb = padFlatToLen(fb, n);
 
-  const out = new Float32Array(n);
-  for(let j=0;j<n;j++) out[j] = lerp(fa[j], fb[j], k);
-  return flatF32ToPoints(out);
+    const out = new Float32Array(n);
+    for (let j = 0; j < n; j++) out[j] = lerp(fa[j], fb[j], k);
+    return flatF32ToPoints(out);
 }
+
 
 /* smoothing */
 const renderCache = {};
-function smoothSnake(id, targetSnake, alpha){
-  if(!targetSnake || targetSnake.length === 0) return targetSnake;
+function smoothSnake(id, targetSnake, alpha) {
+    const prev = renderCache[id];
+    if (!prev || prev.length === 0) {
+        renderCache[id] = targetSnake.map(p => ({ x: p.x, y: p.y }));
+        return renderCache[id];
+    }
 
-  let prev = renderCache[id];
-
-  if(!prev || prev.length === 0){
-    renderCache[id] = targetSnake.map(p => ({x:p.x, y:p.y}));
-    return renderCache[id];
-  }
-
-  const n = Math.max(prev.length, targetSnake.length);
-  prev = padToLen(prev, n);
-  const tgt = padToLen(targetSnake, n);
-
-  const out = new Array(n);
-  for(let i=0;i<n;i++){
-    const tp = tgt[i];
-    const pp = prev[i] || tp;
-    out[i] = { x: lerp(pp.x, tp.x, alpha), y: lerp(pp.y, tp.y, alpha) };
-  }
-  renderCache[id] = out;
-  return out;
+    const n = Math.max(prev.length, targetSnake.length);
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const tp = targetSnake[i] || prev[i];
+        const pp = prev[i] || tp;
+        out[i] = { x: lerp(pp.x, tp.x, alpha), y: lerp(pp.y, tp.y, alpha) };
+    }
+    renderCache[id] = out;
+    return out;
 }
+
 
 /* INPUT + STEERING */
 function normKey(k){
@@ -994,6 +990,10 @@ function draw(ts){
   let dt = ts - draw._lastRafTs;
   draw._lastRafTs = ts;
   if(dt > 120) dt = 120;
+  if (dt > stepMs) {
+    // Плавно отображаем изменения
+    render();
+}
   draw._acc += dt;
   if(draw._acc < stepMs) return;
   draw._acc -= stepMs;
@@ -1012,7 +1012,7 @@ function draw(ts){
     const meI = interpSnakeFromSnaps(meR.snaps, renderTime);
     if(meI && meI.length){
       const meSmoothTau = isTouchDevice ? 88 : 35;
-      const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);
+      const alphaMe = 1 - Math.exp(-dtFrame / meSmoothTau);  // увеличь этот параметр для более плавных переходов
       const smoothMe = smoothSnake(playerId, meI, alphaMe);
       renderPlayers[playerId] = { snake: smoothMe, boost: !!meR.boost, color: meR.color || "white" };
     }
